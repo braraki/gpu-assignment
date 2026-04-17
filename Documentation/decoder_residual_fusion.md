@@ -208,6 +208,24 @@ After the plot command finishes, the key artifacts should be:
 
 Collect the same artifacts for both modes.
 
+### Optional Profiler Scopes
+
+If you want the decoder residual transition to show up explicitly in
+`nsys` or PyTorch profiler traces, enable one of:
+
+- `VLLM_NVTX_SCOPES_FOR_PROFILING=1`
+- `VLLM_CUSTOM_SCOPES_FOR_PROFILING=1`
+
+With that enabled, `gemma4.py` emits distinct scope names for the
+transition between `post_attention_layernorm` and
+`pre_feedforward_layernorm`:
+
+- `gemma4.decoder.pre_ff_residual_norm:baseline`
+- `gemma4.decoder.pre_ff_residual_norm:decoder_residual_fusion`
+
+That makes it easier to compare the baseline residual-add path against
+the fused `RMSNorm(x, residual)` path inside the same decode region.
+
 ### AIPerf
 
 Use the same sweep as step 4, but store outputs separately:

@@ -12,6 +12,7 @@ The important framing is:
 - `lt-512` remains the lower-risk partial-layer control
 - `512` is a separate end-to-end experiment, not a widening of the control mode
 - switching kernel revisions or experiment modes requires a fresh torch compile cache
+- changing `vllm/csrc/fused_qknorm_rope_kernel.cu` also requires rebuilding the installed `vllm` extension
 
 ## Why This Experiment Exists
 
@@ -80,6 +81,34 @@ rm -rf ~/.cache/vllm/torch_compile_cache
 ```
 
 If you do not clear it, the server can load an older compiled graph that still contains the previous fused call pattern.
+
+If you changed any C++/CUDA source under `~/vllm/csrc`, cache clearing is not enough. You must also rebuild the editable install so the loaded `torch.ops._C` binary matches the source tree:
+
+```bash
+cd ~/vllm
+source .venv/bin/activate
+
+uv pip install -e . --torch-backend=auto
+```
+
+The failure
+
+```text
+RuntimeError: Unsupported head dimension for fusedQKNormRope: 512
+```
+
+coming from `torch.ops._C.fused_qk_norm_rope` usually means the compile pass registered the `(512, 8, 1)` signature from Python, but the installed native extension is still an older build that does not contain the `head_dim=512` launcher path.
+
+Before launching the `qk-norm-rope-fusion-512` server, run this smoke test once on the EC2 box:
+
+```bash
+cd ~/vllm
+source .venv/bin/activate
+
+.venv/bin/python -m pytest tests/kernels/core/test_fused_qk_norm_rope.py -k head_dim_512 -v
+```
+
+If that test fails with the same `Unsupported head dimension` error, do not start the server yet. Rebuild `vllm`, then rerun the test.
 
 ## Commands To Run The Experiments
 
@@ -207,6 +236,7 @@ Stop the `lt-512` server, then restart:
 cd ~/vllm
 source .venv/bin/activate
 
+uv pip install -e . --torch-backend=auto
 rm -rf ~/.cache/vllm/torch_compile_cache
 
 CUDA_VISIBLE_DEVICES=0 \
