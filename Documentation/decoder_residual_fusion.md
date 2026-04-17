@@ -86,7 +86,7 @@ vllm serve google/gemma-4-E2B-it \
   --dtype bfloat16 \
   --host 0.0.0.0 \
   --port 8000 \
-  --limit-mm-per-prompt image=0,audio=0 \
+  --language-model-only \
   --max-model-len 4096 \
   --max-num-seqs 8 \
   --max-num-batched-tokens 1024 \
@@ -140,7 +140,7 @@ vllm serve google/gemma-4-E2B-it \
   --dtype bfloat16 \
   --host 0.0.0.0 \
   --port 8000 \
-  --limit-mm-per-prompt image=0,audio=0 \
+  --language-model-only \
   --max-model-len 4096 \
   --max-num-seqs 8 \
   --max-num-batched-tokens 1024 \
