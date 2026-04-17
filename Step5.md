@@ -151,6 +151,7 @@ Why these `nsys` flags:
 
 - `--delay 30` gives the server time to start before capture begins
 - `--duration 30` keeps the trace short enough to be practical on a small instance
+- if the first baseline is too short to capture a clear steady-state window, do a follow-up rerun at `--duration 45`
 - `--trace=cuda,nvtx` keeps the first pass lower-overhead
 - `--cuda-graph-trace=node` is useful for the graph-enabled baseline
 - `--trace-fork-before-exec=true` matches the local `vllm` profiler guidance
