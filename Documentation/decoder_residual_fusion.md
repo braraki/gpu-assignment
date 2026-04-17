@@ -71,7 +71,8 @@ This section assumes:
 
 - the `vllm` server and `AIPerf` are both run on the EC2 instance
 - the model is `google/gemma-4-E2B-it`
-- benchmark artifacts are written under `~/gpu-assignment-results/step6-decoder-residual-fusion`
+- baseline benchmark artifacts are written under `~/gpu-assignment-results/step6-baseline`
+- decoder residual fusion artifacts are written under `~/gpu-assignment-results/step6-decoder-residual-fusion`
 - the plotting helper is run from the cloned `gpu-assignment` repo at `~/gpu-assignment`
 
 ### 1. Start The Baseline Server
@@ -100,7 +101,7 @@ vllm serve google/gemma-4-E2B-it \
 ### 2. Run The Baseline AIPerf Sweep
 
 ```bash
-mkdir -p ~/gpu-assignment-results/step6-decoder-residual-fusion
+mkdir -p ~/gpu-assignment-results/step6-baseline
 source ~/aiperf-venv/bin/activate
 
 for C in 1 2 4 8; do
@@ -122,7 +123,7 @@ for C in 1 2 4 8; do
     --output-tokens-stddev 0 \
     --extra-inputs ignore_eos:true \
     --random-seed 0 \
-    --artifact-dir ~/gpu-assignment-results/step6-decoder-residual-fusion/baseline_c${C}
+    --artifact-dir ~/gpu-assignment-results/step6-baseline/baseline_c${C}
 done
 ```
 
@@ -186,9 +187,11 @@ cd ~/gpu-assignment
 python3 -m pip install -r requirements.txt
 
 python3 plot_aiperf_pareto.py \
-  --series 'baseline=~/gpu-assignment-results/step6-decoder-residual-fusion::baseline_c*' \
-  --series 'decoder-residual-fusion=~/gpu-assignment-results/step6-decoder-residual-fusion::decoder_residual_fusion_c*' \
-  --series 'qk-norm-rope-fusion-lt-512=~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512::qk_norm_rope_fusion_lt_512_c*' \
+  --results-root ~/gpu-assignment-results \
+  --experiment baseline \
+  --experiment decoder-residual-fusion \
+  --experiment qk-norm-rope-fusion-lt-512 \
+  --experiment qk-norm-rope-fusion-512 \
   --output-csv ~/gpu-assignment-results/step6-comparison/combined_summary.csv \
   --output-figure ~/gpu-assignment-results/step6-comparison/combined_pareto.png \
   --title 'Gemma 4 E2B Kernel Experiment Comparison'
@@ -202,7 +205,7 @@ After the plot command finishes, the key artifacts should be:
 - `combined_pareto.png`
 - `combined_pareto_total_tokens.png`
 
-`combined_pareto.png` plots output tokens per second, while `combined_pareto_total_tokens.png` plots total tokens per second. The combined CSV includes a `series_name` column so baseline, decoder residual fusion, and LT-512 Q/K-norm+RoPE fusion points can still be filtered separately. Use those files together with the matching `nsys` traces when evaluating whether the experiment is promising.
+`combined_pareto.png` plots output tokens per second, while `combined_pareto_total_tokens.png` plots total tokens per second. The combined CSV includes a `series_name` column so baseline, decoder residual fusion, LT-512 Q/K-norm+RoPE fusion, and CUDA 512 Q/K-norm+RoPE fusion points can still be filtered separately. Use those files together with the matching `nsys` traces when evaluating whether the experiment is promising.
 
 ## Profiling And Benchmark Artifacts
 

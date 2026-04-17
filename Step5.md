@@ -76,7 +76,7 @@ nsys profile \
   --cpuctxsw=none \
   --cuda-graph-trace=node \
   --trace-fork-before-exec=true \
-  --delay 20 \
+  --delay 240 \
   --duration 45 \
   --output ~/gpu-assignment-results/step5-nsys/baseline \
   vllm serve google/gemma-4-E2B-it \

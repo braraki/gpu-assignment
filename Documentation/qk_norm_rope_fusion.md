@@ -87,7 +87,9 @@ This section assumes:
 
 - `vllm` and `AIPerf` run on the EC2 instance
 - the model is `google/gemma-4-E2B-it`
-- benchmark artifacts live under `~/gpu-assignment-results/step6-qk-norm-rope-fusion`
+- baseline benchmark artifacts live under `~/gpu-assignment-results/step6-baseline`
+- LT-512 artifacts live under `~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512`
+- CUDA 512 artifacts live under `~/gpu-assignment-results/step6-qk-norm-rope-fusion`
 - plotting is run from the cloned `gpu-assignment` repo at `~/gpu-assignment`
 
 ### 1. Start The Baseline Server
@@ -118,7 +120,7 @@ vllm serve google/gemma-4-E2B-it \
 ### 2. Run The Baseline AIPerf Sweep
 
 ```bash
-mkdir -p ~/gpu-assignment-results/step6-qk-norm-rope-fusion
+mkdir -p ~/gpu-assignment-results/step6-baseline
 source ~/aiperf-venv/bin/activate
 
 for C in 1 2 4 8; do
@@ -140,7 +142,7 @@ for C in 1 2 4 8; do
     --output-tokens-stddev 0 \
     --extra-inputs ignore_eos:true \
     --random-seed 0 \
-    --artifact-dir ~/gpu-assignment-results/step6-qk-norm-rope-fusion/baseline_c${C}
+    --artifact-dir ~/gpu-assignment-results/step6-baseline/baseline_c${C}
 done
 ```
 
@@ -195,7 +197,7 @@ for C in 1 2 4 8; do
     --output-tokens-stddev 0 \
     --extra-inputs ignore_eos:true \
     --random-seed 0 \
-    --artifact-dir ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_lt_512_c${C}
+    --artifact-dir ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_c${C}
 done
 ```
 
@@ -268,10 +270,10 @@ cd ~/gpu-assignment
 python3 -m pip install -r requirements.txt
 
 python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results/step6-qk-norm-rope-fusion \
-  --pattern 'baseline_c*' \
-  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion/baseline_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion/baseline_pareto.png \
+  --results-root ~/gpu-assignment-results \
+  --experiment baseline \
+  --output-csv ~/gpu-assignment-results/step6-baseline/baseline_summary.csv \
+  --output-figure ~/gpu-assignment-results/step6-baseline/baseline_pareto.png \
   --title 'Gemma 4 E2B Baseline Pareto Curve'
 ```
 
@@ -281,10 +283,10 @@ LT-512 control:
 cd ~/gpu-assignment
 
 python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results/step6-qk-norm-rope-fusion \
-  --pattern 'qk_norm_rope_fusion_lt_512_c*' \
-  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_lt_512_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_lt_512_pareto.png \
+  --results-root ~/gpu-assignment-results \
+  --experiment qk-norm-rope-fusion-lt-512 \
+  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_summary.csv \
+  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_pareto.png \
   --title 'Gemma 4 E2B LT-512 Q/K RMSNorm + RoPE Fusion Pareto Curve'
 ```
 
@@ -294,8 +296,8 @@ CUDA 512 experiment:
 cd ~/gpu-assignment
 
 python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results/step6-qk-norm-rope-fusion \
-  --pattern 'qk_norm_rope_fusion_512_c*' \
+  --results-root ~/gpu-assignment-results \
+  --experiment qk-norm-rope-fusion-512 \
   --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_512_summary.csv \
   --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_512_pareto.png \
   --title 'Gemma 4 E2B CUDA 512 Q/K RMSNorm + RoPE Fusion Pareto Curve'
@@ -309,9 +311,11 @@ cd ~/gpu-assignment
 mkdir -p ~/gpu-assignment-results/step6-comparison
 
 python3 plot_aiperf_pareto.py \
-  --series 'baseline=~/gpu-assignment-results/step6-qk-norm-rope-fusion::baseline_c*' \
-  --series 'qk-norm-rope-fusion-lt-512=~/gpu-assignment-results/step6-qk-norm-rope-fusion::qk_norm_rope_fusion_lt_512_c*' \
-  --series 'qk-norm-rope-fusion-512=~/gpu-assignment-results/step6-qk-norm-rope-fusion::qk_norm_rope_fusion_512_c*' \
+  --results-root ~/gpu-assignment-results \
+  --experiment baseline \
+  --experiment decoder-residual-fusion \
+  --experiment qk-norm-rope-fusion-lt-512 \
+  --experiment qk-norm-rope-fusion-512 \
   --output-csv ~/gpu-assignment-results/step6-comparison/combined_summary.csv \
   --output-figure ~/gpu-assignment-results/step6-comparison/combined_pareto.png \
   --title 'Gemma 4 E2B Q/K RMSNorm + RoPE Experiment Comparison'

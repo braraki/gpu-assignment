@@ -24,6 +24,23 @@ STAT_PRIORITY = {
 }
 
 
+EXPERIMENT_SPECS = {
+    "baseline": ("step6-baseline", "baseline_c*"),
+    "decoder-residual-fusion": (
+        "step6-decoder-residual-fusion",
+        "decoder_residual_fusion_c*",
+    ),
+    "qk-norm-rope-fusion-lt-512": (
+        "step6-qk-norm-rope-fusion-lt-512",
+        "qk_norm_rope_fusion_lt_512_c*",
+    ),
+    "qk-norm-rope-fusion-512": (
+        "step6-qk-norm-rope-fusion",
+        "qk_norm_rope_fusion_512_c*",
+    ),
+}
+
+
 @dataclass
 class RunSummary:
     series_name: str
@@ -78,6 +95,17 @@ def parse_args() -> argparse.Namespace:
             "~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512::"
             "qk_norm_rope_fusion_lt_512_c*. When provided, all series are "
             "plotted together and written to the same CSV."
+        ),
+    )
+    parser.add_argument(
+        "--experiment",
+        action="append",
+        default=[],
+        choices=sorted(EXPERIMENT_SPECS),
+        help=(
+            "Add a named step-6 experiment using the standard "
+            "gpu-assignment-results layout under --results-root. May be "
+            "passed multiple times."
         ),
     )
     parser.add_argument(
@@ -330,6 +358,27 @@ def collect_rows(
     return rows
 
 
+def collect_experiment_rows(
+    results_root: Path,
+    experiment_name: str,
+    gpu_count: float,
+) -> list[RunSummary]:
+    try:
+        relative_root, pattern = EXPERIMENT_SPECS[experiment_name]
+    except KeyError as exc:
+        supported = ", ".join(sorted(EXPERIMENT_SPECS))
+        raise SystemExit(
+            f"Unsupported experiment {experiment_name!r}. Supported values: {supported}"
+        ) from exc
+
+    return collect_rows(
+        results_root / relative_root,
+        pattern=pattern,
+        gpu_count=gpu_count,
+        series_name=experiment_name,
+    )
+
+
 def derive_total_output_figure(output_figure: Path) -> Path:
     return output_figure.with_name(
         f"{output_figure.stem}_total_tokens{output_figure.suffix}"
@@ -407,7 +456,18 @@ def print_summary(
 def main() -> int:
     args = parse_args()
     rows: list[RunSummary] = []
-    if args.series:
+    if args.experiment:
+        if args.results_root is None:
+            raise SystemExit("--results-root is required when using --experiment.")
+        for experiment_name in args.experiment:
+            rows.extend(
+                collect_experiment_rows(
+                    args.results_root,
+                    experiment_name=experiment_name,
+                    gpu_count=args.gpu_count,
+                )
+            )
+    elif args.series:
         for series_arg in args.series:
             series_name, series_root, pattern = split_series_arg(series_arg)
             results_root = series_root or args.results_root
