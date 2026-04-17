@@ -343,6 +343,7 @@ mkdir -p ~/gpu-assignment-results/step6-comparison
 python3 plot_aiperf_pareto.py \
   --results-root ~/gpu-assignment-results \
   --experiment baseline \
+  --experiment async-output-sync-reduction \
   --experiment decoder-residual-fusion \
   --experiment qk-norm-rope-fusion-lt-512 \
   --experiment qk-norm-rope-fusion-512 \

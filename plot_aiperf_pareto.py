@@ -30,6 +30,10 @@ EXPERIMENT_SPECS = {
         "step6-decoder-residual-fusion",
         "decoder_residual_fusion_c*",
     ),
+    "async-output-sync-reduction": (
+        "step6-async-output-sync-reduction",
+        "async_output_sync_reduction_c*",
+    ),
     "qk-norm-rope-fusion-lt-512": (
         "step6-qk-norm-rope-fusion-lt-512",
         "qk_norm_rope_fusion_lt_512_c*",
@@ -90,6 +94,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Add a named series to the plot. May be passed multiple times, "
             "for example: --series baseline=baseline_c* "
+            "--series async-output-sync-reduction=async_output_sync_reduction_c* "
             "--series decoder-residual-fusion=decoder_residual_fusion_c* "
             "or --series qk-norm-rope-fusion-lt-512="
             "~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512::"

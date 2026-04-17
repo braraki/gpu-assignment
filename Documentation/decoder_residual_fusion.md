@@ -190,6 +190,7 @@ python3 plot_aiperf_pareto.py \
   --results-root ~/gpu-assignment-results \
   --experiment baseline \
   --experiment decoder-residual-fusion \
+  --experiment async-output-sync-reduction \
   --experiment qk-norm-rope-fusion-lt-512 \
   --experiment qk-norm-rope-fusion-512 \
   --output-csv ~/gpu-assignment-results/step6-comparison/combined_summary.csv \
@@ -205,7 +206,7 @@ After the plot command finishes, the key artifacts should be:
 - `combined_pareto.png`
 - `combined_pareto_total_tokens.png`
 
-`combined_pareto.png` plots output tokens per second, while `combined_pareto_total_tokens.png` plots total tokens per second. The combined CSV includes a `series_name` column so baseline, decoder residual fusion, LT-512 Q/K-norm+RoPE fusion, and CUDA 512 Q/K-norm+RoPE fusion points can still be filtered separately. Use those files together with the matching `nsys` traces when evaluating whether the experiment is promising.
+`combined_pareto.png` plots output tokens per second, while `combined_pareto_total_tokens.png` plots total tokens per second. The combined CSV includes a `series_name` column so baseline, decoder residual fusion, async output sync reduction, LT-512 Q/K-norm+RoPE fusion, and CUDA 512 Q/K-norm+RoPE fusion points can still be filtered separately. Use those files together with the matching `nsys` traces when evaluating whether the experiment is promising.
 
 ## Profiling And Benchmark Artifacts
 
