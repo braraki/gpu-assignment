@@ -6,7 +6,7 @@ This repo now has separate step documents:
 - `Step4.md`: benchmarking the running server and building the step-4 Pareto curve
 - `Step5.md`: collecting and comparing Nsight Systems GPU traces
 - `Documentation/decoder_residual_fusion.md`: step-6 notes, experiment design, and decoder residual fusion targets
-- `Documentation/qk_norm_rope_fusion.md`: step-6 follow-on notes for the Q/K RMSNorm + RoPE fusion experiment
+- `Documentation/qk_norm_rope_fusion.md`: step-6 follow-on notes for the lt-512 Q/K RMSNorm + RoPE fusion experiment
 - `CHEATSHEET.md`: quick EC2 commands for SSH, `vllm`, requests, and `AIPerf`
 - `PLOTTING.md`: how to install the plotting dependency and generate the Pareto figure
 - `requirements.txt`: minimal dependency file for the plotting helper

@@ -1,8 +1,8 @@
-# Q/K RMSNorm + RoPE Fusion Notes
+# LT-512 Q/K RMSNorm + RoPE Fusion Notes
 
 ## Goal
 
-Evaluate a second `Gemma 4 E2B` kernel experiment in `vLLM` using the existing fused Q/K RMSNorm + RoPE infrastructure.
+Evaluate a second `Gemma 4 E2B` kernel experiment in `vLLM` using the existing fused Q/K RMSNorm + RoPE infrastructure, but only for Gemma 4 attention layers whose head dimension is below `512`.
 
 This experiment is intended to be:
 
@@ -10,6 +10,7 @@ This experiment is intended to be:
 - compatible with CUDA graphs
 - compatible with async scheduling
 - easy to benchmark with the existing one-flag `AIPerf` workflow
+- explicit about being a **partial-layer** optimization rather than a whole-model one
 
 ## Why This Is The Next Experiment
 
@@ -36,12 +37,12 @@ By contrast, Q/K-norm+RoPE fusion already exists generically in `vLLM`, so this 
 
 The experiment mode is:
 
-- `qk-norm-rope-fusion`
+- `qk-norm-rope-fusion-lt-512`
 
 The public interface remains the same single flag used for the other Gemma 4 experiments:
 
 ```bash
---gemma4-kernel-experiment qk-norm-rope-fusion
+--gemma4-kernel-experiment qk-norm-rope-fusion-lt-512
 ```
 
 When this mode is selected, the server should automatically enable the compile-time machinery needed for the existing fusion path:
@@ -52,13 +53,55 @@ When this mode is selected, the server should automatically enable the compile-t
 
 No manual `compilation-config` changes should be required beyond the existing step-3 launch command.
 
+The important scope limitation is:
+
+- Gemma 4 layers with `head_dim=256` are eligible for this experiment
+- Gemma 4 layers with `head_dim=512` are not
+
+So this mode should be understood as **kernel fusion for lt-512 Gemma 4 layers**, not a full-model Q/K fusion mode.
+
+## Gemma 4 Specific Caveat And Fix
+
+The first attempt at this experiment failed on `Gemma 4 E2B` even though the generic fusion pass already existed.
+
+The root cause was that `Gemma 4` does **not** use one uniform attention layout across all decoder layers:
+
+- some layers use the standard `head_dim`
+- full-attention layers can use `global_head_dim`
+- KV head counts can also differ across layer families
+
+The original `QKNormRoPEFusionPass` incorrectly registered patterns using only the **first** discovered `Attention` layer. That worked for models with one uniform attention signature, but it broke on Gemma 4 when the pass tried to match a pattern traced with one QKV split size against a different layer with a wider QKV projection. The runtime symptom looked like:
+
+```text
+Split sizes add up to 2560 but got the tensor's size of 5120
+```
+
+The fix was to change the pass so it registers one fusion pattern for **each unique attention signature** discovered in the model:
+
+- `(head_dim, num_heads, num_kv_heads)` per discovered `Attention` layer
+
+That makes the experiment compatible with Gemma 4's mixed attention stack while keeping the implementation generic.
+
+After that, a second issue became clear: the fused CUDA op itself only supports `head_dim` values `64`, `128`, and `256`. Gemma 4 full-attention layers use `head_dim=512`, so the experiment had to be narrowed.
+
+The current behavior is:
+
+- register and run the fused path only for supported lt-512 signatures
+- skip unsupported `512`-dim signatures instead of crashing server startup
+
+This means the current experiment measures the effect of partial fusion on the supported Gemma 4 layer family. A follow-up experiment can target `head_dim=512` support separately.
+
+There is now also a regression test covering a mixed-signature attention model so this specific failure mode stays covered.
+
+Before rerunning this experiment on EC2, make sure your `~/vllm` checkout includes that fix. If you ran the experiment before pulling the latest code, update the checkout first and then restart the server.
+
 ## Commands To Run The Experiment
 
 This section assumes:
 
 - the `vllm` server and `AIPerf` are both run on the EC2 instance
 - the model is `google/gemma-4-E2B-it`
-- benchmark artifacts are written under `~/gpu-assignment-results/step6-qk-norm-rope-fusion`
+- benchmark artifacts are written under `~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512`
 - the plotting helper is run from the cloned `gpu-assignment` repo at `~/gpu-assignment`
 
 ### 1. Start The Baseline Server
@@ -87,7 +130,7 @@ vllm serve google/gemma-4-E2B-it \
 ### 2. Run The Baseline AIPerf Sweep
 
 ```bash
-mkdir -p ~/gpu-assignment-results/step6-qk-norm-rope-fusion
+mkdir -p ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512
 source ~/aiperf-venv/bin/activate
 
 for C in 1 2 4 8; do
@@ -109,11 +152,11 @@ for C in 1 2 4 8; do
     --output-tokens-stddev 0 \
     --extra-inputs ignore_eos:true \
     --random-seed 0 \
-    --artifact-dir ~/gpu-assignment-results/step6-qk-norm-rope-fusion/baseline_c${C}
+    --artifact-dir ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/baseline_c${C}
 done
 ```
 
-### 3. Start The Q/K-Norm + RoPE Fusion Server
+### 3. Start The LT-512 Q/K-Norm + RoPE Fusion Server
 
 Stop the baseline server, then restart with the experiment flag changed:
 
@@ -135,16 +178,16 @@ vllm serve google/gemma-4-E2B-it \
   --enable-chunked-prefill \
   --async-scheduling \
   --compilation-config '{"mode":3,"cudagraph_mode":"FULL_AND_PIECEWISE"}' \
-  --gemma4-kernel-experiment qk-norm-rope-fusion
+  --gemma4-kernel-experiment qk-norm-rope-fusion-lt-512
 ```
 
-### 4. Run The Q/K-Norm + RoPE AIPerf Sweep
+### 4. Run The LT-512 Q/K-Norm + RoPE AIPerf Sweep
 
 ```bash
 source ~/aiperf-venv/bin/activate
 
 for C in 1 2 4 8; do
-  echo "=== Q/K-norm + RoPE fusion concurrency ${C} ==="
+  echo "=== LT-512 Q/K-norm + RoPE fusion concurrency ${C} ==="
   aiperf profile \
     --model google/gemma-4-E2B-it \
     --tokenizer google/gemma-4-E2B-it \
@@ -162,7 +205,7 @@ for C in 1 2 4 8; do
     --output-tokens-stddev 0 \
     --extra-inputs ignore_eos:true \
     --random-seed 0 \
-    --artifact-dir ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_c${C}
+    --artifact-dir ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_c${C}
 done
 ```
 
@@ -173,24 +216,24 @@ cd ~/gpu-assignment
 python3 -m pip install -r requirements.txt
 
 python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results/step6-qk-norm-rope-fusion \
+  --results-root ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512 \
   --pattern 'baseline_c*' \
-  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion/baseline_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion/baseline_pareto.png \
+  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/baseline_summary.csv \
+  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/baseline_pareto.png \
   --title 'Gemma 4 E2B Baseline Pareto Curve'
 ```
 
-### 6. Generate The Q/K-Norm + RoPE Pareto Plot
+### 6. Generate The LT-512 Q/K-Norm + RoPE Pareto Plot
 
 ```bash
 cd ~/gpu-assignment
 
 python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results/step6-qk-norm-rope-fusion \
-  --pattern 'qk_norm_rope_fusion_c*' \
-  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_pareto.png \
-  --title 'Gemma 4 E2B Q/K RMSNorm + RoPE Fusion Pareto Curve'
+  --results-root ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512 \
+  --pattern 'qk_norm_rope_fusion_lt_512_c*' \
+  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_summary.csv \
+  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_pareto.png \
+  --title 'Gemma 4 E2B LT-512 Q/K RMSNorm + RoPE Fusion Pareto Curve'
 ```
 
 ## Expected Artifacts
@@ -199,22 +242,23 @@ The important artifacts for this experiment are:
 
 - `baseline_summary.csv`
 - `baseline_pareto.png`
-- `qk_norm_rope_fusion_summary.csv`
-- `qk_norm_rope_fusion_pareto.png`
-- matching `nsys` traces for baseline and qk-norm-rope-fusion
+- `qk_norm_rope_fusion_lt_512_summary.csv`
+- `qk_norm_rope_fusion_lt_512_pareto.png`
+- matching `nsys` traces for baseline and `qk-norm-rope-fusion-lt-512`
 
 ## Success Criteria
 
 The experiment is considered promising only if all of the following hold:
 
-- the server starts cleanly with `--gemma4-kernel-experiment qk-norm-rope-fusion`
+- the server starts cleanly with `--gemma4-kernel-experiment qk-norm-rope-fusion-lt-512`
 - the selected mode still appears in logs
 - the model responds coherently
 - there is no obvious correctness regression relative to baseline
 - AIPerf shows a measurable throughput and/or latency improvement
 - CUDA graphs and async scheduling remain enabled unless intentionally disabled for a specific trace
-- profiling evidence suggests the fused path is actually active
+- profiling evidence suggests the fused path is actually active on the supported lt-512 layer family
+- the write-up is explicit that `512`-dim Gemma 4 layers remain unfused in this experiment
 
 ## Follow-On Candidate
 
-If this experiment does not move the Pareto curve enough, the next candidate remains **PLE branch fusion**.
+The natural follow-on to this experiment is a dedicated **`head_dim=512` Q/K RMSNorm + RoPE kernel support** effort. If that is not pursued next, the other major candidate remains **PLE branch fusion**.
