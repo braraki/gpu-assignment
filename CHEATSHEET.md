@@ -180,6 +180,10 @@ python3 plot_aiperf_pareto.py \
   --output-figure ~/gpu-assignment-results/step4-aiperf/baseline_pareto.png
 ```
 
+Also writes:
+
+- `~/gpu-assignment-results/step4-aiperf/baseline_pareto_total_tokens.png`
+
 ## If The Public IP Changes
 
 After an EC2 stop/start cycle, the public IP or DNS may change. Get the new value from the AWS console and use it in the SSH command again.

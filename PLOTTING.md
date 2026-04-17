@@ -56,21 +56,30 @@ It writes:
 
 - `baseline_summary.csv`
 - `baseline_pareto.png`
+- `baseline_pareto_total_tokens.png`
 
 The CSV has one row per run and includes:
 
 - concurrency
-- token/s/user
-- tokens/s/gpu
+- output tokens/s/user
+- output tokens/s/gpu
 - output token throughput
+- total tokens/s/user
+- total tokens/s/gpu
+- total token throughput
 - TTFT
 - ITL
 - request latency
 
-The PNG is the Pareto curve:
+The first PNG is the output-token Pareto curve:
 
-- x-axis: `token/s/user`
-- y-axis: `tokens/s/gpu`
+- x-axis: `output tokens/s/user`
+- y-axis: `output tokens/s/gpu`
+
+The second PNG is the total-token Pareto curve:
+
+- x-axis: `total tokens/s/user`
+- y-axis: `total tokens/s/gpu`
 
 ## 6. Optional Arguments
 
@@ -92,4 +101,4 @@ Useful options:
 2. Run the AIPerf concurrency sweep.
 3. Confirm each `baseline_c*` directory contains `profile_export_aiperf.json`.
 4. Run the plotting script.
-5. Inspect `baseline_summary.csv` and `baseline_pareto.png`.
+5. Inspect `baseline_summary.csv`, `baseline_pareto.png`, and `baseline_pareto_total_tokens.png`.

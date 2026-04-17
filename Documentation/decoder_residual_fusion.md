@@ -186,22 +186,23 @@ cd ~/gpu-assignment
 python3 -m pip install -r requirements.txt
 
 python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results/step6-decoder-residual-fusion \
-  --series 'baseline=baseline_c*' \
-  --series 'decoder-residual-fusion=decoder_residual_fusion_c*' \
-  --output-csv ~/gpu-assignment-results/step6-decoder-residual-fusion/combined_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-decoder-residual-fusion/combined_pareto.png \
-  --title 'Gemma 4 E2B Baseline vs Decoder Residual Fusion'
+  --series 'baseline=~/gpu-assignment-results/step6-decoder-residual-fusion::baseline_c*' \
+  --series 'decoder-residual-fusion=~/gpu-assignment-results/step6-decoder-residual-fusion::decoder_residual_fusion_c*' \
+  --series 'qk-norm-rope-fusion-lt-512=~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512::qk_norm_rope_fusion_lt_512_c*' \
+  --output-csv ~/gpu-assignment-results/step6-comparison/combined_summary.csv \
+  --output-figure ~/gpu-assignment-results/step6-comparison/combined_pareto.png \
+  --title 'Gemma 4 E2B Kernel Experiment Comparison'
 ```
 
-### 6. Compare The Two Result Sets
+### 6. Compare The Result Sets
 
 After the plot command finishes, the key artifacts should be:
 
 - `combined_summary.csv`
 - `combined_pareto.png`
+- `combined_pareto_total_tokens.png`
 
-The combined CSV includes a `series_name` column so baseline and experiment points can still be filtered separately. Use those files together with the matching `nsys` traces when evaluating whether the experiment is promising.
+`combined_pareto.png` plots output tokens per second, while `combined_pareto_total_tokens.png` plots total tokens per second. The combined CSV includes a `series_name` column so baseline, decoder residual fusion, and LT-512 Q/K-norm+RoPE fusion points can still be filtered separately. Use those files together with the matching `nsys` traces when evaluating whether the experiment is promising.
 
 ## Profiling And Benchmark Artifacts
 

@@ -209,41 +209,28 @@ for C in 1 2 4 8; do
 done
 ```
 
-### 5. Generate The Baseline Pareto Plot
+### 5. Generate A Combined Pareto Plot
 
 ```bash
 cd ~/gpu-assignment
 python3 -m pip install -r requirements.txt
 
 python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512 \
-  --pattern 'baseline_c*' \
-  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/baseline_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/baseline_pareto.png \
-  --title 'Gemma 4 E2B Baseline Pareto Curve'
-```
-
-### 6. Generate The LT-512 Q/K-Norm + RoPE Pareto Plot
-
-```bash
-cd ~/gpu-assignment
-
-python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512 \
-  --pattern 'qk_norm_rope_fusion_lt_512_c*' \
-  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_pareto.png \
-  --title 'Gemma 4 E2B LT-512 Q/K RMSNorm + RoPE Fusion Pareto Curve'
+  --series 'baseline=~/gpu-assignment-results/step6-decoder-residual-fusion::baseline_c*' \
+  --series 'decoder-residual-fusion=~/gpu-assignment-results/step6-decoder-residual-fusion::decoder_residual_fusion_c*' \
+  --series 'qk-norm-rope-fusion-lt-512=~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512::qk_norm_rope_fusion_lt_512_c*' \
+  --output-csv ~/gpu-assignment-results/step6-comparison/combined_summary.csv \
+  --output-figure ~/gpu-assignment-results/step6-comparison/combined_pareto.png \
+  --title 'Gemma 4 E2B Kernel Experiment Comparison'
 ```
 
 ## Expected Artifacts
 
-The important artifacts for this experiment are:
+The important artifacts for cross-experiment comparison are:
 
-- `baseline_summary.csv`
-- `baseline_pareto.png`
-- `qk_norm_rope_fusion_lt_512_summary.csv`
-- `qk_norm_rope_fusion_lt_512_pareto.png`
+- `combined_summary.csv`
+- `combined_pareto.png`
+- `combined_pareto_total_tokens.png`
 - matching `nsys` traces for baseline and `qk-norm-rope-fusion-lt-512`
 
 ## Success Criteria

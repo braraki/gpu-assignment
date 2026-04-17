@@ -29,9 +29,12 @@ class RunSummary:
     series_name: str
     run_name: str
     concurrency: int
-    tokens_per_s_per_user: float
-    tokens_per_s_per_gpu: float
+    output_tokens_per_s_per_user: float
+    output_tokens_per_s_per_gpu: float
     output_token_throughput: float
+    total_tokens_per_s_per_user: float
+    total_tokens_per_s_per_gpu: float
+    total_token_throughput: float
     ttft_ms: float | None
     itl_ms: float | None
     request_latency_ms: float | None
@@ -47,9 +50,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--results-root",
-        required=True,
         type=Path,
-        help="Directory that contains baseline_c* run directories.",
+        help=(
+            "Default directory that contains run directories. Required for "
+            "single-series plots and for any --series entry that does not "
+            "provide its own root."
+        ),
     )
     parser.add_argument(
         "--pattern",
@@ -63,13 +69,15 @@ def parse_args() -> argparse.Namespace:
         "--series",
         action="append",
         default=[],
-        metavar="LABEL=PATTERN",
+        metavar="LABEL=PATTERN or LABEL=ROOT::PATTERN",
         help=(
             "Add a named series to the plot. May be passed multiple times, "
             "for example: --series baseline=baseline_c* "
-            "--series decoder-residual-fusion=decoder_residual_fusion_c*. "
-            "When provided, all series are plotted together and written to "
-            "the same CSV."
+            "--series decoder-residual-fusion=decoder_residual_fusion_c* "
+            "or --series qk-norm-rope-fusion-lt-512="
+            "~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512::"
+            "qk_norm_rope_fusion_lt_512_c*. When provided, all series are "
+            "plotted together and written to the same CSV."
         ),
     )
     parser.add_argument(
@@ -173,7 +181,7 @@ def summarize_run(run_dir: Path, gpu_count: float, series_name: str) -> RunSumma
     payload = load_json(json_path)
     flat_values = list(iter_numeric_paths(payload))
 
-    tokens_per_user = extract_metric(
+    output_tokens_per_user = extract_metric(
         flat_values,
         [
             (("output", "token", "throughput", "per", "user"), ()),
@@ -185,6 +193,13 @@ def summarize_run(run_dir: Path, gpu_count: float, series_name: str) -> RunSumma
         [
             (("output_token_throughput",), ("per_user",)),
             (("output", "token", "throughput"), ("per_user", "request")),
+        ],
+    )
+    total_token_throughput = extract_metric(
+        flat_values,
+        [
+            (("total_token_throughput",), ()),
+            (("total", "token", "throughput"), ("per_user", "request")),
         ],
     )
     ttft_ms = extract_metric(
@@ -208,10 +223,12 @@ def summarize_run(run_dir: Path, gpu_count: float, series_name: str) -> RunSumma
         ],
     )
 
-    if tokens_per_user is None:
+    if output_tokens_per_user is None:
         raise ValueError(f"Could not find output throughput per user in {json_path}")
     if output_token_throughput is None:
         raise ValueError(f"Could not find output token throughput in {json_path}")
+    if total_token_throughput is None:
+        raise ValueError(f"Could not find total token throughput in {json_path}")
     if gpu_count <= 0:
         raise ValueError("--gpu-count must be positive")
 
@@ -220,9 +237,12 @@ def summarize_run(run_dir: Path, gpu_count: float, series_name: str) -> RunSumma
         series_name=series_name,
         run_name=run_dir.name,
         concurrency=concurrency,
-        tokens_per_s_per_user=tokens_per_user,
-        tokens_per_s_per_gpu=output_token_throughput / gpu_count,
+        output_tokens_per_s_per_user=output_tokens_per_user,
+        output_tokens_per_s_per_gpu=output_token_throughput / gpu_count,
         output_token_throughput=output_token_throughput,
+        total_tokens_per_s_per_user=total_token_throughput / concurrency,
+        total_tokens_per_s_per_gpu=total_token_throughput / gpu_count,
+        total_token_throughput=total_token_throughput,
         ttft_ms=ttft_ms,
         itl_ms=itl_ms,
         request_latency_ms=request_latency_ms,
@@ -239,9 +259,12 @@ def write_csv(rows: list[RunSummary], output_csv: Path) -> None:
                 "series_name",
                 "run_name",
                 "concurrency",
-                "tokens_per_s_per_user",
-                "tokens_per_s_per_gpu",
+                "output_tokens_per_s_per_user",
+                "output_tokens_per_s_per_gpu",
                 "output_token_throughput",
+                "total_tokens_per_s_per_user",
+                "total_tokens_per_s_per_gpu",
+                "total_token_throughput",
                 "ttft_ms",
                 "itl_ms",
                 "request_latency_ms",
@@ -254,9 +277,12 @@ def write_csv(rows: list[RunSummary], output_csv: Path) -> None:
                     row.series_name,
                     row.run_name,
                     row.concurrency,
-                    f"{row.tokens_per_s_per_user:.6f}",
-                    f"{row.tokens_per_s_per_gpu:.6f}",
+                    f"{row.output_tokens_per_s_per_user:.6f}",
+                    f"{row.output_tokens_per_s_per_gpu:.6f}",
                     f"{row.output_token_throughput:.6f}",
+                    f"{row.total_tokens_per_s_per_user:.6f}",
+                    f"{row.total_tokens_per_s_per_gpu:.6f}",
+                    f"{row.total_token_throughput:.6f}",
                     "" if row.ttft_ms is None else f"{row.ttft_ms:.6f}",
                     "" if row.itl_ms is None else f"{row.itl_ms:.6f}",
                     "" if row.request_latency_ms is None else f"{row.request_latency_ms:.6f}",
@@ -265,13 +291,22 @@ def write_csv(rows: list[RunSummary], output_csv: Path) -> None:
             )
 
 
-def split_series_arg(series_arg: str) -> tuple[str, str]:
+def split_series_arg(series_arg: str) -> tuple[str, Path | None, str]:
     label, separator, pattern = series_arg.partition("=")
     if not separator or not label.strip() or not pattern.strip():
         raise ValueError(
             f"Invalid --series value {series_arg!r}. Expected LABEL=PATTERN."
         )
-    return label.strip(), pattern.strip()
+    series_name = label.strip()
+    pattern_spec = pattern.strip()
+    if "::" in pattern_spec:
+        root_text, pattern_text = pattern_spec.split("::", maxsplit=1)
+        if not root_text.strip() or not pattern_text.strip():
+            raise ValueError(
+                f"Invalid --series value {series_arg!r}. Expected LABEL=ROOT::PATTERN."
+            )
+        return series_name, Path(root_text.strip()).expanduser(), pattern_text.strip()
+    return series_name, None, pattern_spec
 
 
 def collect_rows(
@@ -295,7 +330,21 @@ def collect_rows(
     return rows
 
 
-def plot_rows(rows: list[RunSummary], output_figure: Path, title: str) -> None:
+def derive_total_output_figure(output_figure: Path) -> Path:
+    return output_figure.with_name(
+        f"{output_figure.stem}_total_tokens{output_figure.suffix}"
+    )
+
+
+def plot_rows(
+    rows: list[RunSummary],
+    output_figure: Path,
+    title: str,
+    x_attr: str,
+    y_attr: str,
+    x_label: str,
+    y_label: str,
+) -> None:
     try:
         import matplotlib.pyplot as plt
     except ImportError as exc:  # pragma: no cover - runtime environment issue
@@ -310,18 +359,18 @@ def plot_rows(rows: list[RunSummary], output_figure: Path, title: str) -> None:
     series_names = list(dict.fromkeys(row.series_name for row in rows))
     for series_name in series_names:
         series_rows = [row for row in rows if row.series_name == series_name]
-        xs = [row.tokens_per_s_per_user for row in series_rows]
-        ys = [row.tokens_per_s_per_gpu for row in series_rows]
+        xs = [getattr(row, x_attr) for row in series_rows]
+        ys = [getattr(row, y_attr) for row in series_rows]
         plt.plot(xs, ys, marker="o", linewidth=1.5, label=series_name)
         for row in series_rows:
             plt.annotate(
                 f"c{row.concurrency}",
-                (row.tokens_per_s_per_user, row.tokens_per_s_per_gpu),
+                (getattr(row, x_attr), getattr(row, y_attr)),
                 textcoords="offset points",
                 xytext=(6, 6),
             )
-    plt.xlabel("token/s/user")
-    plt.ylabel("tokens/s/gpu")
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
     plt.title(title)
     plt.grid(True, linestyle="--", alpha=0.4)
     if len(series_names) > 1:
@@ -331,7 +380,12 @@ def plot_rows(rows: list[RunSummary], output_figure: Path, title: str) -> None:
     plt.close()
 
 
-def print_summary(rows: list[RunSummary], output_csv: Path, output_figure: Path) -> None:
+def print_summary(
+    rows: list[RunSummary],
+    output_csv: Path,
+    output_figure: Path,
+    total_output_figure: Path,
+) -> None:
     print("Collected runs:")
     for row in rows:
         ttft = "n/a" if row.ttft_ms is None else f"{row.ttft_ms:.2f}"
@@ -339,12 +393,15 @@ def print_summary(rows: list[RunSummary], output_csv: Path, output_figure: Path)
         req = "n/a" if row.request_latency_ms is None else f"{row.request_latency_ms:.2f}"
         print(
             f"  {row.series_name} / {row.run_name}: "
-            f"x={row.tokens_per_s_per_user:.3f} token/s/user, "
-            f"y={row.tokens_per_s_per_gpu:.3f} tokens/s/gpu, "
+            f"output_x={row.output_tokens_per_s_per_user:.3f} output tokens/s/user, "
+            f"output_y={row.output_tokens_per_s_per_gpu:.3f} output tokens/s/gpu, "
+            f"total_x={row.total_tokens_per_s_per_user:.3f} total tokens/s/user, "
+            f"total_y={row.total_tokens_per_s_per_gpu:.3f} total tokens/s/gpu, "
             f"ttft_ms={ttft}, itl_ms={itl}, request_latency_ms={req}"
         )
     print(f"Summary CSV: {output_csv}")
-    print(f"Figure: {output_figure}")
+    print(f"Output-token figure: {output_figure}")
+    print(f"Total-token figure: {total_output_figure}")
 
 
 def main() -> int:
@@ -352,16 +409,24 @@ def main() -> int:
     rows: list[RunSummary] = []
     if args.series:
         for series_arg in args.series:
-            series_name, pattern = split_series_arg(series_arg)
+            series_name, series_root, pattern = split_series_arg(series_arg)
+            results_root = series_root or args.results_root
+            if results_root is None:
+                raise SystemExit(
+                    "--results-root is required unless every --series entry "
+                    "uses LABEL=ROOT::PATTERN."
+                )
             rows.extend(
                 collect_rows(
-                    args.results_root,
+                    results_root,
                     pattern=pattern,
                     gpu_count=args.gpu_count,
                     series_name=series_name,
                 )
             )
     else:
+        if args.results_root is None:
+            raise SystemExit("--results-root is required for single-series plots.")
         rows = collect_rows(
             args.results_root,
             pattern=args.pattern,
@@ -369,9 +434,28 @@ def main() -> int:
             series_name="default",
         )
 
+    total_output_figure = derive_total_output_figure(args.output_figure)
+
     write_csv(rows, args.output_csv)
-    plot_rows(rows, args.output_figure, args.title)
-    print_summary(rows, args.output_csv, args.output_figure)
+    plot_rows(
+        rows,
+        args.output_figure,
+        args.title,
+        x_attr="output_tokens_per_s_per_user",
+        y_attr="output_tokens_per_s_per_gpu",
+        x_label="output tokens/s/user",
+        y_label="output tokens/s/gpu",
+    )
+    plot_rows(
+        rows,
+        total_output_figure,
+        f"{args.title} (Total Tokens)",
+        x_attr="total_tokens_per_s_per_user",
+        y_attr="total_tokens_per_s_per_gpu",
+        x_label="total tokens/s/user",
+        y_label="total tokens/s/gpu",
+    )
+    print_summary(rows, args.output_csv, args.output_figure, total_output_figure)
     return 0
 
 

@@ -270,13 +270,17 @@ Outputs:
 
 - `~/gpu-assignment-results/step4-aiperf/baseline_summary.csv`
 - `~/gpu-assignment-results/step4-aiperf/baseline_pareto.png`
+- `~/gpu-assignment-results/step4-aiperf/baseline_pareto_total_tokens.png`
 
 The summary CSV contains one row per run and includes:
 
 - concurrency
-- `Output Token Throughput Per User`
-- `tokens/s/gpu`
+- `Output Tokens/s/User`
+- `Output Tokens/s/GPU`
 - `Output Token Throughput`
+- `Total Tokens/s/User`
+- `Total Tokens/s/GPU`
+- `Total Token Throughput`
 - `Time to First Token`
 - `Inter Token Latency`
 - `Request Latency`
