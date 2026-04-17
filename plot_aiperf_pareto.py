@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gather AIPerf baseline runs and save a Pareto plot."""
+"""Gather AIPerf runs and save one or more Pareto curves."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ STAT_PRIORITY = {
 
 @dataclass
 class RunSummary:
+    series_name: str
     run_name: str
     concurrency: int
     tokens_per_s_per_user: float
@@ -40,7 +41,7 @@ class RunSummary:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Collect AIPerf baseline_c* runs, write a summary CSV, "
+            "Collect AIPerf run directories, write a summary CSV, "
             "and save a Pareto plot."
         )
     )
@@ -53,7 +54,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--pattern",
         default="baseline_c*",
-        help="Glob used to find run directories under --results-root.",
+        help=(
+            "Glob used to find run directories under --results-root for "
+            "single-series plots."
+        ),
+    )
+    parser.add_argument(
+        "--series",
+        action="append",
+        default=[],
+        metavar="LABEL=PATTERN",
+        help=(
+            "Add a named series to the plot. May be passed multiple times, "
+            "for example: --series baseline=baseline_c* "
+            "--series decoder-residual-fusion=decoder_residual_fusion_c*. "
+            "When provided, all series are plotted together and written to "
+            "the same CSV."
+        ),
     )
     parser.add_argument(
         "--output-csv",
@@ -145,7 +162,7 @@ def load_json(path: Path) -> dict:
         return json.load(handle)
 
 
-def summarize_run(run_dir: Path, gpu_count: float) -> RunSummary:
+def summarize_run(run_dir: Path, gpu_count: float, series_name: str) -> RunSummary:
     json_path = run_dir / "profile_export_aiperf.json"
     if not json_path.exists():
         matches = sorted(run_dir.rglob("profile_export_aiperf.json"))
@@ -200,6 +217,7 @@ def summarize_run(run_dir: Path, gpu_count: float) -> RunSummary:
 
     concurrency = extract_concurrency(run_dir)
     return RunSummary(
+        series_name=series_name,
         run_name=run_dir.name,
         concurrency=concurrency,
         tokens_per_s_per_user=tokens_per_user,
@@ -218,6 +236,7 @@ def write_csv(rows: list[RunSummary], output_csv: Path) -> None:
         writer = csv.writer(handle)
         writer.writerow(
             [
+                "series_name",
                 "run_name",
                 "concurrency",
                 "tokens_per_s_per_user",
@@ -232,6 +251,7 @@ def write_csv(rows: list[RunSummary], output_csv: Path) -> None:
         for row in rows:
             writer.writerow(
                 [
+                    row.series_name,
                     row.run_name,
                     row.concurrency,
                     f"{row.tokens_per_s_per_user:.6f}",
@@ -245,6 +265,36 @@ def write_csv(rows: list[RunSummary], output_csv: Path) -> None:
             )
 
 
+def split_series_arg(series_arg: str) -> tuple[str, str]:
+    label, separator, pattern = series_arg.partition("=")
+    if not separator or not label.strip() or not pattern.strip():
+        raise ValueError(
+            f"Invalid --series value {series_arg!r}. Expected LABEL=PATTERN."
+        )
+    return label.strip(), pattern.strip()
+
+
+def collect_rows(
+    results_root: Path,
+    pattern: str,
+    gpu_count: float,
+    series_name: str,
+) -> list[RunSummary]:
+    run_dirs = sorted(
+        [path for path in results_root.glob(pattern) if path.is_dir()],
+        key=extract_concurrency,
+    )
+    if not run_dirs:
+        raise SystemExit(f"No run directories matched {pattern!r} under {results_root}")
+
+    rows = [
+        summarize_run(run_dir, gpu_count=gpu_count, series_name=series_name)
+        for run_dir in run_dirs
+    ]
+    rows.sort(key=lambda row: row.concurrency)
+    return rows
+
+
 def plot_rows(rows: list[RunSummary], output_figure: Path, title: str) -> None:
     try:
         import matplotlib.pyplot as plt
@@ -256,22 +306,26 @@ def plot_rows(rows: list[RunSummary], output_figure: Path, title: str) -> None:
 
     output_figure.parent.mkdir(parents=True, exist_ok=True)
 
-    xs = [row.tokens_per_s_per_user for row in rows]
-    ys = [row.tokens_per_s_per_gpu for row in rows]
-
     plt.figure(figsize=(8, 6))
-    plt.plot(xs, ys, marker="o", linewidth=1.5)
-    for row in rows:
-        plt.annotate(
-            f"c{row.concurrency}",
-            (row.tokens_per_s_per_user, row.tokens_per_s_per_gpu),
-            textcoords="offset points",
-            xytext=(6, 6),
-        )
+    series_names = list(dict.fromkeys(row.series_name for row in rows))
+    for series_name in series_names:
+        series_rows = [row for row in rows if row.series_name == series_name]
+        xs = [row.tokens_per_s_per_user for row in series_rows]
+        ys = [row.tokens_per_s_per_gpu for row in series_rows]
+        plt.plot(xs, ys, marker="o", linewidth=1.5, label=series_name)
+        for row in series_rows:
+            plt.annotate(
+                f"c{row.concurrency}",
+                (row.tokens_per_s_per_user, row.tokens_per_s_per_gpu),
+                textcoords="offset points",
+                xytext=(6, 6),
+            )
     plt.xlabel("token/s/user")
     plt.ylabel("tokens/s/gpu")
     plt.title(title)
     plt.grid(True, linestyle="--", alpha=0.4)
+    if len(series_names) > 1:
+        plt.legend()
     plt.tight_layout()
     plt.savefig(output_figure, dpi=200)
     plt.close()
@@ -284,7 +338,7 @@ def print_summary(rows: list[RunSummary], output_csv: Path, output_figure: Path)
         itl = "n/a" if row.itl_ms is None else f"{row.itl_ms:.2f}"
         req = "n/a" if row.request_latency_ms is None else f"{row.request_latency_ms:.2f}"
         print(
-            f"  {row.run_name}: "
+            f"  {row.series_name} / {row.run_name}: "
             f"x={row.tokens_per_s_per_user:.3f} token/s/user, "
             f"y={row.tokens_per_s_per_gpu:.3f} tokens/s/gpu, "
             f"ttft_ms={ttft}, itl_ms={itl}, request_latency_ms={req}"
@@ -295,17 +349,25 @@ def print_summary(rows: list[RunSummary], output_csv: Path, output_figure: Path)
 
 def main() -> int:
     args = parse_args()
-    run_dirs = sorted(
-        [path for path in args.results_root.glob(args.pattern) if path.is_dir()],
-        key=extract_concurrency,
-    )
-    if not run_dirs:
-        raise SystemExit(
-            f"No run directories matched {args.pattern!r} under {args.results_root}"
+    rows: list[RunSummary] = []
+    if args.series:
+        for series_arg in args.series:
+            series_name, pattern = split_series_arg(series_arg)
+            rows.extend(
+                collect_rows(
+                    args.results_root,
+                    pattern=pattern,
+                    gpu_count=args.gpu_count,
+                    series_name=series_name,
+                )
+            )
+    else:
+        rows = collect_rows(
+            args.results_root,
+            pattern=args.pattern,
+            gpu_count=args.gpu_count,
+            series_name="default",
         )
-
-    rows = [summarize_run(run_dir, gpu_count=args.gpu_count) for run_dir in run_dirs]
-    rows.sort(key=lambda row: row.concurrency)
 
     write_csv(rows, args.output_csv)
     plot_rows(rows, args.output_figure, args.title)

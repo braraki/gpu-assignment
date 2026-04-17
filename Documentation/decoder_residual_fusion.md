@@ -179,7 +179,7 @@ for C in 1 2 4 8; do
 done
 ```
 
-### 5. Generate The Baseline Pareto Plot
+### 5. Generate A Combined Pareto Plot
 
 ```bash
 cd ~/gpu-assignment
@@ -187,35 +187,21 @@ python3 -m pip install -r requirements.txt
 
 python3 plot_aiperf_pareto.py \
   --results-root ~/gpu-assignment-results/step6-decoder-residual-fusion \
-  --pattern 'baseline_c*' \
-  --output-csv ~/gpu-assignment-results/step6-decoder-residual-fusion/baseline_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-decoder-residual-fusion/baseline_pareto.png \
-  --title 'Gemma 4 E2B Baseline Pareto Curve'
+  --series 'baseline=baseline_c*' \
+  --series 'decoder-residual-fusion=decoder_residual_fusion_c*' \
+  --output-csv ~/gpu-assignment-results/step6-decoder-residual-fusion/combined_summary.csv \
+  --output-figure ~/gpu-assignment-results/step6-decoder-residual-fusion/combined_pareto.png \
+  --title 'Gemma 4 E2B Baseline vs Decoder Residual Fusion'
 ```
 
-### 6. Generate The Decoder Residual Fusion Pareto Plot
+### 6. Compare The Two Result Sets
 
-```bash
-cd ~/gpu-assignment
+After the plot command finishes, the key artifacts should be:
 
-python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results/step6-decoder-residual-fusion \
-  --pattern 'decoder_residual_fusion_c*' \
-  --output-csv ~/gpu-assignment-results/step6-decoder-residual-fusion/decoder_residual_fusion_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-decoder-residual-fusion/decoder_residual_fusion_pareto.png \
-  --title 'Gemma 4 E2B Decoder Residual Fusion Pareto Curve'
-```
+- `combined_summary.csv`
+- `combined_pareto.png`
 
-### 7. Compare The Two Result Sets
-
-After both plot commands finish, the key artifacts should be:
-
-- `baseline_summary.csv`
-- `baseline_pareto.png`
-- `decoder_residual_fusion_summary.csv`
-- `decoder_residual_fusion_pareto.png`
-
-Use those files together with the matching `nsys` traces when evaluating whether the experiment is promising.
+The combined CSV includes a `series_name` column so baseline and experiment points can still be filtered separately. Use those files together with the matching `nsys` traces when evaluating whether the experiment is promising.
 
 ## Profiling And Benchmark Artifacts
 
