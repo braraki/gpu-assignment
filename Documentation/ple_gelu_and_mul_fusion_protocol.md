@@ -211,7 +211,7 @@ PYTHONPATH=~/vllm nsys profile \
     --endpoint /v1/chat/completions \
     --base-url http://localhost:8000 \
     --model google/gemma-4-E2B-it \
-    --dataset-name synthetic \
+    --dataset-name random \
     --num-prompts 128 \
     --random-input-len 512 \
     --random-output-len 128 \

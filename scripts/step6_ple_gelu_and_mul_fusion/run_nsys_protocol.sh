@@ -47,7 +47,7 @@ PYTHONPATH="$VLLM_DIR" nsys profile \
     --endpoint /v1/chat/completions \
     --base-url "http://localhost:${PORT}" \
     --model "$MODEL" \
-    --dataset-name synthetic \
+    --dataset-name random \
     --num-prompts 128 \
     --random-input-len 512 \
     --random-output-len 128 \
