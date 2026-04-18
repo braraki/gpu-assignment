@@ -29,6 +29,7 @@ The script set for this benchmark lives in [gpu-assignment/scripts/part1_benchma
 - [profile_vanilla_gemma4_nsys.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/profile_vanilla_gemma4_nsys.sh): launches the server under `nsys`
 - [run_aiperf_sweep.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/run_aiperf_sweep.sh): runs the standard baseline `AIPerf` concurrency sweep
 - [run_aiperf_c4_load.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/run_aiperf_c4_load.sh): drives the `AIPerf`-shaped concurrency-4 load
+- [process_nsys_report.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/process_nsys_report.sh): exports the standard `nsys` report set for a saved Part 1 trace
 
 ## Why This Setup
 
@@ -257,54 +258,26 @@ Fill this section in after you collect artifacts.
 
 ## Post-Process The `nsys` Trace
 
-After the run completes, generate a few CLI summaries from the saved trace.
-
-Set the trace path once:
+After the run completes, use the Part 1 helper:
 
 ```bash
-TRACE=~/gpu-assignment-results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like.nsys-rep
-OUT=~/gpu-assignment-results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats
+cd ~/gpu-assignment/gpu-assignment
+scripts/part1_benchmarking/process_nsys_report.sh
 ```
 
-Generate the default text summary:
+That generates:
+
+- `*_stats.txt`
+- `*_stats.csv`
+- `*_stats_focused.txt`
+- `*_stats.sqlite`
+
+To process a different trace name:
 
 ```bash
-nsys stats "$TRACE" > "${OUT}.txt"
+cd ~/gpu-assignment/gpu-assignment
+TRACE_NAME=vanilla_trial_2 scripts/part1_benchmarking/process_nsys_report.sh
 ```
-
-Generate a CSV-formatted summary:
-
-```bash
-nsys stats --format csv "$TRACE" > "${OUT}.csv"
-```
-
-If you want specific built-in reports, export them individually:
-
-```bash
-nsys stats \
-  --report cuda_api_sum,cuda_gpu_kern_sum,cuda_gpu_mem_time_sum,osrt_sum \
-  "$TRACE" > "${OUT}_focused.txt"
-```
-
-Those reports are useful for:
-
-- `cuda_api_sum`: host-side CUDA API time
-- `cuda_gpu_kern_sum`: GPU kernel time by kernel name
-- `cuda_gpu_mem_time_sum`: CUDA memcpy and memset time
-- `osrt_sum`: OS runtime behavior and host-side waits
-
-You can also export SQLite if you want to do deeper custom analysis later:
-
-```bash
-nsys export --type sqlite --output "${OUT}" "$TRACE"
-```
-
-That should create:
-
-- `${OUT}.txt`
-- `${OUT}.csv`
-- `${OUT}_focused.txt`
-- `${OUT}.sqlite`
 
 ### Environment
 

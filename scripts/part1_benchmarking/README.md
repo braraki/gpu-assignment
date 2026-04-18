@@ -6,3 +6,4 @@ This directory contains the minimal harness for the first vanilla `vllm` benchma
 - `profile_vanilla_gemma4_nsys.sh`: start the server under a richer `nsys` trace with CUDA, NVTX, OS runtime, CPU sampling, and CPU context switches
 - `run_aiperf_sweep.sh`: run the standard `AIPerf` concurrency sweep against the current vanilla server
 - `run_aiperf_c4_load.sh`: run an `AIPerf` load that matches the normal concurrency benchmark shape at `c=4`
+- `process_nsys_report.sh`: export `nsys stats` summaries for a named Part 1 report
