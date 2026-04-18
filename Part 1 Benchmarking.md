@@ -7,7 +7,7 @@ The goal of part 1 is narrow:
 1. run vanilla `vllm` with `google/gemma-4-E2B-it`
 2. keep the server configuration fixed at concurrency `4`
 3. collect one `nsys` trace from the server itself
-4. drive exactly one round of `4` concurrent requests during the capture window
+4. drive a sustained `AIPerf` load at concurrency `4` during the capture window
 5. save the commands, artifact locations, and a place to record results
 
 This part does not compare kernel experiments. It is the baseline setup on unmodified `vllm`.
@@ -18,7 +18,7 @@ This part does not compare kernel experiments. It is the baseline setup on unmod
 - server: vanilla `vllm serve`
 - GPU count: `1`
 - server-side concurrency cap: `--max-num-seqs 4`
-- client load shape: `1` round of `4` simultaneous requests
+- client load shape: `AIPerf` chat benchmark shape at `concurrency=4`
 - profiler: `nsys`
 
 ## Files Added For This Part
@@ -27,20 +27,24 @@ The script set for this benchmark lives in [gpu-assignment/scripts/part1_benchma
 
 - [serve_vanilla_gemma4.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/serve_vanilla_gemma4.sh): runs the vanilla server without `nsys`
 - [profile_vanilla_gemma4_nsys.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/profile_vanilla_gemma4_nsys.sh): launches the server under `nsys`
-- [run_single_round_load.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/run_single_round_load.sh): drives the single concurrency-4 request round
-- [single_round_chat_load.py](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/single_round_chat_load.py): exact client implementation
+- [run_aiperf_c4_load.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/run_aiperf_c4_load.sh): drives the `AIPerf`-shaped concurrency-4 load
 
 ## Why This Setup
 
 The important detail is that `nsys` must wrap the server process, not the client process. The GPU work you care about happens inside `vllm serve`, so the profiler has to be attached there.
 
-The client is deliberately simple:
+The important choice here is to use `AIPerf`, not a custom one-shot client.
 
-- it waits for `http://localhost:8000/v1/models`
-- it sends exactly `4` chat requests once
-- it writes one JSON artifact with request latency and raw responses
+That makes the trace much closer to the normal benchmarking path because it preserves the same:
 
-That keeps the trace focused on one controlled burst of work instead of a long steady-state benchmark sweep.
+- endpoint type: `chat`
+- streaming behavior
+- synthetic input length: `512`
+- synthetic output length target: `128`
+- extra generation control: `ignore_eos:true`
+- concurrency control: `4`
+
+The only meaningful change from the normal concurrency sweep is that this part fixes concurrency at `4` and uses one sustained run to keep the server busy during the profiling window.
 
 ## Prerequisites
 
@@ -71,9 +75,9 @@ By default, the scripts write to:
 
 Expected outputs:
 
-- `nsys/vanilla_gemma4_e2b_c4_single_round.nsys-rep`
-- `nsys/vanilla_gemma4_e2b_c4_single_round.qdrep` if your local `nsys` version emits it
-- `load/vanilla_gemma4_e2b_c4_single_round.json`
+- `nsys/vanilla_gemma4_e2b_c4_aiperf_like.nsys-rep`
+- `nsys/vanilla_gemma4_e2b_c4_aiperf_like.qdrep` if your local `nsys` version emits it
+- `load/vanilla_gemma4_e2b_c4_aiperf_like/`
 
 ## Optional Sanity Check Without Profiling
 
@@ -88,7 +92,7 @@ In another shell:
 
 ```bash
 cd ~/gpu-assignment/gpu-assignment
-scripts/part1_benchmarking/run_single_round_load.sh
+scripts/part1_benchmarking/run_aiperf_c4_load.sh
 ```
 
 ## Main Profiling Run
@@ -108,27 +112,34 @@ Default behavior:
 - sets `VLLM_WORKER_MULTIPROC_METHOD=spawn`
 - enables `VLLM_NVTX_SCOPES_FOR_PROFILING=1`
 - enables `VLLM_CUSTOM_SCOPES_FOR_PROFILING=1`
-- waits `90` seconds before capture
-- records `20` seconds of trace time
+- waits `140` seconds before capture
+- records `30` seconds of trace time
 
-Those defaults give the server time to finish startup, compilation, and graph capture before the profiler starts recording.
+Those defaults assume the server takes about `80` seconds to become ready and leave about `60` additional seconds for post-startup warm-up before the profiler starts recording.
 
-### Shell 2: Send The Single Request Round
+### Shell 2: Start The Concurrency-4 Benchmark Load
 
 After the server is healthy, and before the `nsys` delay window expires, run:
 
 ```bash
 cd ~/gpu-assignment/gpu-assignment
-scripts/part1_benchmarking/run_single_round_load.sh
+scripts/part1_benchmarking/run_aiperf_c4_load.sh
 ```
 
 Default load behavior:
 
 - concurrency: `4`
-- request rounds: `1`
-- `max_tokens`: `128`
+- request count: `8192`
+- warmup request count: `16`
+- synthetic input tokens mean: `512`
+- synthetic input tokens stddev: `0`
+- output tokens mean: `128`
+- output tokens stddev: `0`
 - endpoint: `/v1/chat/completions`
-- output artifact: `~/gpu-assignment-results/part1-benchmarking/load/vanilla_gemma4_e2b_c4_single_round.json`
+- streaming: enabled
+- output artifact directory: `~/gpu-assignment-results/part1-benchmarking/load/vanilla_gemma4_e2b_c4_aiperf_like`
+
+This is intentionally close to the step-4 concurrency benchmark settings. The default `request_count` is much larger than the step-4 sweep so the load is very likely to stay active for the entire warm-up and `nsys` capture window.
 
 ## Useful Overrides
 
@@ -136,7 +147,7 @@ Shorter warm-up:
 
 ```bash
 cd ~/gpu-assignment/gpu-assignment
-WARMUP_SECONDS=45 CAPTURE_SECONDS=15 \
+WARMUP_SECONDS=110 CAPTURE_SECONDS=20 \
 scripts/part1_benchmarking/profile_vanilla_gemma4_nsys.sh
 ```
 
@@ -145,7 +156,7 @@ Different port:
 ```bash
 cd ~/gpu-assignment/gpu-assignment
 PORT=8001 BASE_URL=http://localhost:8001 \
-scripts/part1_benchmarking/run_single_round_load.sh
+scripts/part1_benchmarking/run_aiperf_c4_load.sh
 ```
 
 Different output name:
@@ -161,7 +172,15 @@ For a matching custom load artifact name, run shell 2 with:
 ```bash
 cd ~/gpu-assignment/gpu-assignment
 RUN_NAME=vanilla_trial_2 \
-scripts/part1_benchmarking/run_single_round_load.sh
+scripts/part1_benchmarking/run_aiperf_c4_load.sh
+```
+
+If you want to keep the same benchmark shape but make the load longer or shorter:
+
+```bash
+cd ~/gpu-assignment/gpu-assignment
+REQUEST_COUNT=4096 WARMUP_REQUEST_COUNT=16 \
+scripts/part1_benchmarking/run_aiperf_c4_load.sh
 ```
 
 ## What To Record After The Run
@@ -190,14 +209,16 @@ Fill this section in after you collect artifacts.
 ### Load Config Used
 
 - concurrency:
-- rounds:
-- `max_tokens`:
-- prompts used:
+- request count:
+- warmup request count:
+- synthetic input tokens:
+- synthetic output tokens:
+- streaming:
 
 ### Artifact Paths
 
 - `nsys` trace:
-- load JSON:
+- `AIPerf` artifact directory:
 - any exported `nsys stats` output:
 
 ### Observations
@@ -214,4 +235,4 @@ After the first trace is saved, the next useful follow-up is:
 
 1. run `nsys stats` on the saved `.nsys-rep`
 2. inspect the trace in the Nsight Systems GUI
-3. decide whether the single-round burst is enough or whether a second run should use a slightly longer or repeated burst
+3. decide whether the first `c=4` load window is enough or whether a second run should use a longer capture window or a larger `request_count`
