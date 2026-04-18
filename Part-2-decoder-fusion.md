@@ -135,16 +135,16 @@ If you need to rerun the baseline sweep locally, Part 1 now includes:
 
 The baseline stats file from Part 1 is:
 
-- [vanilla_gemma4_e2b_c4_aiperf_like_stats.txt](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:1)
+- [vanilla_gemma4_e2b_c4_aiperf_like_stats.txt](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:1)
 
 The main run is still dominated by dense GEMM compute:
 
 - main CUTLASS BF16 GEMM:
   `63.6%`, `18,907,321,403 ns`, `167,065` instances
-  [stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:80)
+  [stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:80)
 - second CUTLASS BF16 GEMM:
   `18.7%`, `5,549,157,316 ns`, `97,285` instances
-  [stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:81)
+  [stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:81)
 
 The repeated add+RMSNorm-style Triton family is present in the hot path:
 
@@ -153,13 +153,13 @@ The repeated add+RMSNorm-style Triton family is present in the hot path:
   - `181,374,949 ns`
   - `45,036` instances
   - `4.03 us` average
-  - [stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:89)
+  - [stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:89)
 - `triton_red_fused_add_rms_norm_2`
   - `0.4%`
   - `125,175,707 ns`
   - `45,036` instances
   - `2.78 us` average
-  - [stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:94)
+  - [stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:94)
 
 There is also host-side evidence that the run is generally paced by GPU work:
 
@@ -167,7 +167,7 @@ There is also host-side evidence that the run is generally paced by GPU work:
   - `92.5%` of CUDA API time
   - `29,386,739,541 ns`
   - `2,574` calls
-  - [stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:47)
+  - [stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:47)
 
 So this experiment is not trying to beat the main GEMMs. The more realistic
 goal is to make the decoder pre-FF handoff cheaper and cleaner.
@@ -195,6 +195,64 @@ default `torch.compile`:
 - it owns both `hidden_states` and `residual`
 - it already exists in vLLM, so the experiment risk is lower than writing a
   new kernel from scratch
+
+## Operator Microbenchmark
+
+Part 2 now includes an operator-level microbenchmark for the exact pre-FF
+residual handoff above. This benchmark ignores `nsys` and serving-path
+profiling and instead compares the isolated operator sequence directly.
+
+The benchmark lives in:
+
+- [benchmark_decoder_residual_fusion.py](/Users/brandonaraki/projects/gpu-assignment/vllm/benchmarks/kernels/benchmark_decoder_residual_fusion.py)
+
+It compares these providers:
+
+- `baseline_eager`
+  - explicit `hidden_states + residual`, then RMSNorm
+- `baseline_compiled`
+  - the same baseline operator sequence wrapped in `torch.compile`
+- `fusion_custom_op`
+  - vLLM's existing `fused_add_rms_norm(...)` path
+
+By default it:
+
+- derives `hidden_size` and `rms_norm_eps` from `google/gemma-4-E2B-it`
+- uses `bfloat16`
+- benchmarks flattened token counts `1 4 16 64 256 1024`
+- runs a correctness check that compares both:
+  - normalized `hidden_states`
+  - updated `residual`
+
+### Run It
+
+Use the Part 2 script:
+
+```bash
+cd ~/gpu-assignment
+gpu-assignment/scripts/part2_decoder_fusion/run_microbenchmark.sh
+```
+
+Outputs land under:
+
+- [results/part2-decoder-fusion/microbench](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/microbench)
+
+The main CSV is:
+
+- [decoder_residual_fusion_benchmark.csv](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/microbench/decoder_residual_fusion_benchmark.csv)
+
+The script also writes one latency-vs-token-count plot per hidden size.
+
+### How To Interpret A Win
+
+The main comparison of interest is:
+
+- `baseline_compiled`
+- `fusion_custom_op`
+
+This benchmark is successful if `fusion_custom_op` shows lower median latency
+than `baseline_compiled` at Gemma4-relevant token counts without failing the
+correctness check.
 
 ## What We Expect To Change
 
@@ -258,115 +316,75 @@ To validate this experiment cleanly:
 The current Part 2 result set includes:
 
 - Part 1 baseline `nsys stats` output:
-  [vanilla_gemma4_e2b_c4_aiperf_like_stats.txt](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:1)
+  [vanilla_gemma4_e2b_c4_aiperf_like_stats.txt](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:1)
 - Part 2 fusion `nsys stats` output:
-  [decoder_residual_fusion_stats.txt](/Users/brandonaraki/projects/gpu-assignment/results/part-2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:1)
+  [decoder_residual_fusion_stats.txt](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:1)
 - fusion `AIPerf` artifact from the profiling run:
-  [profile_export_aiperf.json](/Users/brandonaraki/projects/gpu-assignment/results/part-2-decoder-fusion/load/profile_export_aiperf.json:1)
+  [profile_export_aiperf.json](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/load/profile_export_aiperf.json:1)
 
 ### Main Result
 
-From the saved Part 1 and Part 2 exports, there is **no clear end-to-end kernel
-mix shift**.
+From the refreshed Part 1 and Part 2 traces, the result is still: **no clear
+macro-level win**.
 
-The dominant kernels are effectively unchanged:
+### High-Level Runner Impact
 
-- baseline top kernel:
-  `63.6%`, `18,907,321,403 ns`, `167,065` instances
-  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:80)
-- fusion top kernel:
-  `63.6%`, `18,916,235,956 ns`, `167,293` instances
-  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part-2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:79)
+At the high-level NVTX layer, the forward path did not improve. There is about a `2.0%` regression in the average forward NVTX span.
 
-- baseline second kernel:
-  `18.7%`, `5,549,157,316 ns`, `97,285` instances
-  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:81)
-- fusion second kernel:
-  `18.6%`, `5,545,051,016 ns`, `97,417` instances
-  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part-2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:80)
+Some adjacent scopes improved slightly:
 
-So the model remains dominated by the same large GEMM kernels after the
-decoder-residual-fusion change.
+- `preprocess`: about `-0.6%`
+- `sample`: about `-3.3%`
+- `postprocess`: about `-3.6%`
+- `schedule: allocate_slots`: about `-2.8%`
 
-### NVTX Caveat
+But those small wins were not enough to offset the forward-path regression.
 
-The saved `nsys stats` exports in `results/part-1-benchmarking` and
-`results/part-2-decoder-fusion` do **not** contain the
-`gemma4.decoder.pre_ff_residual_norm:*` NVTX ranges.
+### Small Kernel Family Changes
 
-Instead, the NVTX section in both saved exports only shows:
+The compiler-generated RMSNorm family did change shape.
 
-- `CCCL:cub::DeviceRadixSort`
-  [Part 1 NVTX summary](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:6)
-  [Part 2 NVTX summary](/Users/brandonaraki/projects/gpu-assignment/results/part-2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:6)
-
-That means the saved logs do **not** let us prove the scoped
-`gemma4.decoder.pre_ff_residual_norm:*` improvement directly. The current
-results have to be interpreted from the full-trace kernel summaries and the
-profiling-window `AIPerf` artifacts instead.
-
-The likely reason is that the earlier profiling runs enabled both:
-
-- `VLLM_CUSTOM_SCOPES_FOR_PROFILING=1`
-- `VLLM_NVTX_SCOPES_FOR_PROFILING=1`
-
-In [vllm/v1/utils.py](/Users/brandonaraki/projects/gpu-assignment/vllm/vllm/v1/utils.py:424), custom scopes take precedence, so `record_function(...)` is used instead of `torch.cuda.nvtx.range(...)`. For `nsys`, the profiling scripts now default to:
-
-- `VLLM_NVTX_SCOPES_FOR_PROFILING=1`
-- `VLLM_CUSTOM_SCOPES_FOR_PROFILING=0`
-
-so future traces should expose the Gemma4 scopes as actual NVTX ranges.
-
-### What Changed In The Small Triton Family
-
-The full-trace kernel tables do show a change in the compiler-generated
-add+RMSNorm family.
-
-In Part 1 baseline, the relevant kernels appear as:
+Baseline has:
 
 - `triton_red_fused_add_rms_norm_0`
-  `0.6%`, `181,374,949 ns`
-  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:89)
+  `210,266,703 ns`
+  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:88)
 - `triton_red_fused_add_rms_norm_2`
-  `0.4%`, `125,175,707 ns`
-  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:94)
+  `125,155,546 ns`
+  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:92)
 - `triton_red_fused_add_mul_rms_norm_4`
-  `0.6%`, `179,450,799 ns`
-  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:91)
+  `177,989,701 ns`
+  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:90)
 
-In Part 2 fusion, the family is not gone, but some members are renamed:
+Fusion has:
 
 - `triton_red_fused__to_copy_add_mean_mul_pow_rms_norm_rsqrt_0`
-  `0.7%`, `208,582,817 ns`
-  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part-2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:88)
+  `180,364,094 ns`
+  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:89)
 - `triton_red_fused__to_copy_add_rms_norm_2`
-  `0.4%`, `124,595,427 ns`
-  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part-2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:92)
+  `124,795,109 ns`
+  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:93)
 - `triton_red_fused_add_mul_rms_norm_4`
-  `0.6%`, `176,883,913 ns`
-  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part-2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:90)
+  `177,384,419 ns`
+  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:91)
 
-The practical read is:
+If you sum those three RMSNorm-family kernels, the fusion trace is about `6%`
+lower than baseline. That is the strongest evidence in the saved logs that the
+decoder fusion changed something real in the intended direction.
 
-- the compiler-generated RMSNorm family changed shape
-- it did **not** disappear from the full trace
-- the aggregate cost of this family does not show an obvious reduction in the
-  saved full-trace exports
-
-So, from these saved logs alone, the evidence is that decoder residual fusion
-changed the generated kernel decomposition, but not enough to move the overall
-kernel breakdown in a large visible way.
+But that win is small relative to the full trace, and it is not visible at the
+overall forward-scope level.
 
 ### What Did Not Meaningfully Change
 
 `cudaEventSynchronize` does not show a meaningful improvement:
 
 - baseline:
-  `92.5%`, `29,386,739,541 ns`, `2,574` calls
-  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:47)
+  `92.5%`, `29,464,003,682 ns`, `2,577` calls
+  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:47)
 - fusion:
-  `92.6%`, `29,298,983,881 ns`, `2,579` calls
-  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part-2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:47)
+  `92.6%`, `29,268,454,487 ns`, `2,577` calls
+  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:47)
 
 So this experiment does not appear to move the host-side synchronization story
 in any meaningful way.
@@ -380,51 +398,56 @@ terminated at the end of the profiling window.
 
 Fusion artifact:
 
-- output token throughput: `169.59 tok/s`
-- output token throughput per user: `44.36 tok/s/user`
-- TTFT: `148.59 ms`
-- inter-token latency: `22.55 ms`
-- error request count: `1194`
-  [fusion artifact](/Users/brandonaraki/projects/gpu-assignment/results/part-2-decoder-fusion/load/profile_export_aiperf.json:1)
+- output token throughput: `169.95 tok/s`
+- output token throughput per user: `44.41 tok/s/user`
+- TTFT: `146.00 ms`
+- inter-token latency: `22.52 ms`
+- request latency: `2972.15 ms`
+- error request count: `450`
+  [fusion artifact](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/load/profile_export_aiperf.json:1)
 
 For reference, the comparable Part 1 profiling-window load artifact is also not
 clean:
 
-- output token throughput: `170.45 tok/s`
-- output token throughput per user: `44.53 tok/s/user`
-- TTFT: `145.32 ms`
-- inter-token latency: `22.46 ms`
-- error request count: `2244`
-  [Part 1 artifact](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/load/vanilla_gemma4_e2b_c4_aiperf_like/profile_export_aiperf.json:1)
+- output token throughput: `169.36 tok/s`
+- output token throughput per user: `44.28 tok/s/user`
+- TTFT: `150.41 ms`
+- inter-token latency: `22.59 ms`
+- request latency: `2894.53 ms`
+- error request count: `217`
+  [Part 1 artifact](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/load/vanilla_gemma4_e2b_c4_aiperf_like/profile_export_aiperf.json:1)
 
-The throughput numbers are effectively flat within noise:
+On these profiling-window artifacts, fusion is basically flat:
 
-- output token throughput: about `-0.5%`
-- output token throughput per user: about `-0.4%`
-- TTFT: about `+2.3%`
-- inter-token latency: about `+0.4%`
+- output token throughput: about `+0.35%`
+- output token throughput per user: about `+0.29%`
+- TTFT: about `-2.9%`
+- inter-token latency: about `-0.3%`
+- request latency: about `+2.7%`
 
-The failure counts are too high to treat this as the final end-to-end
-benchmark conclusion.
+The problem is that the failure counts are still nontrivial and now worse in
+the fusion run (`217` baseline vs `450` fusion). So these are still not clean
+benchmark-quality end-to-end numbers.
 
 ### Interpretation
 
 The current result is:
 
-- the saved Part 2 logs do show that the generated add+RMSNorm kernel family
-  changed
+- the generated add+RMSNorm kernel family changed and got a modest aggregate
+  reduction
 - no, it did not change the dominant GEMM bottleneck structure
 - no, it did not meaningfully change `cudaEventSynchronize`
-- no, the saved profiling-window `AIPerf` artifact does not show a clean
-  throughput win
-- no, the saved Part 1 and Part 2 exports do not contain the decoder
-  `gemma4.decoder.pre_ff_residual_norm:*` NVTX scopes needed for a direct
-  scoped proof
+- no, the average `gpu_model_runner: forward` NVTX span did not improve
+- no, the saved profiling-window `AIPerf` artifact does not show a clean,
+  trustworthy throughput win
+- no, the saved Part 1 and Part 2 exports still do not contain the decoder
+  `gemma4.decoder.pre_ff_residual_norm:*` scope needed for a direct targeted
+  measurement
 
 So the right write-up is:
 
-- **kernel decomposition changed**
-- **end-to-end benefit not demonstrated from these saved logs**
+- **micro-level kernel decomposition changed**
+- **macro-level improvement not demonstrated from these saved logs**
 
 The next step is to run a clean fusion `AIPerf` sweep, outside the forced
 `nsys` shutdown path, and if you want scoped proof, rerun the fusion trace with
