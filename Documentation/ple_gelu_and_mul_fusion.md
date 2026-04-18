@@ -76,7 +76,7 @@ Only the experiment flag should differ between end-to-end AIPerf runs.
 These scripts live under:
 
 ```text
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/
+scripts/step6_ple_gelu_and_mul_fusion/
 ```
 
 ### 1. Start The Server
@@ -84,13 +84,13 @@ gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/
 Baseline:
 
 ```bash
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh baseline
+scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh baseline
 ```
 
 Fusion:
 
 ```bash
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh ple-gelu-and-mul-fusion
+scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh ple-gelu-and-mul-fusion
 ```
 
 ### 2. Run The AIPerf Sweep
@@ -98,13 +98,13 @@ gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh 
 Baseline:
 
 ```bash
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_aiperf_sweep.sh baseline
+scripts/step6_ple_gelu_and_mul_fusion/run_aiperf_sweep.sh baseline
 ```
 
 Fusion:
 
 ```bash
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_aiperf_sweep.sh ple-gelu-and-mul-fusion
+scripts/step6_ple_gelu_and_mul_fusion/run_aiperf_sweep.sh ple-gelu-and-mul-fusion
 ```
 
 Artifacts:
@@ -115,7 +115,7 @@ Artifacts:
 ### 3. Run The Microbenchmark
 
 ```bash
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_microbenchmarks.sh
+scripts/step6_ple_gelu_and_mul_fusion/run_microbenchmarks.sh
 ```
 
 This writes:
@@ -134,25 +134,25 @@ The microbenchmark compares:
 
 Use two shells:
 
-1. shell 1 starts the server and leaves it running
-2. shell 2 runs the `nsys` wrapper
+1. shell 1 launches the server under `nsys`
+2. shell 2 drives steady-state load into that server
 
-The wrapper self-warms before tracing. It starts sending load immediately, waits `200` seconds, and records only the next `30` seconds. That means you normally do **not** need a separate manual warm-load shell.
+The important detail is that `nsys` must wrap the server process, not the client/load-generator process. The PLE wrapper now follows that pattern. It launches `vllm serve` under `nsys`, waits `200` seconds before capture, and records only the next `30` seconds. Shell 2 should keep sending requests during that delay so the captured window reflects steady-state serving.
 
 Baseline example:
 
 Shell 1:
 
 ```bash
-cd ~/gpu-assignment
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh baseline
+cd ~/gpu-assignment/gpu-assignment
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
 ```
 
 Shell 2:
 
 ```bash
-cd ~/gpu-assignment
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
+cd ~/gpu-assignment/gpu-assignment
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_load.sh baseline
 ```
 
 Fusion example:
@@ -160,23 +160,23 @@ Fusion example:
 Shell 1:
 
 ```bash
-cd ~/gpu-assignment
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh ple-gelu-and-mul-fusion
+cd ~/gpu-assignment/gpu-assignment
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh ple-gelu-and-mul-fusion
 ```
 
 Shell 2:
 
 ```bash
-cd ~/gpu-assignment
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh ple-gelu-and-mul-fusion
+cd ~/gpu-assignment/gpu-assignment
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_load.sh ple-gelu-and-mul-fusion
 ```
 
 Optional warm-up override:
 
 ```bash
-cd ~/gpu-assignment
+cd ~/gpu-assignment/gpu-assignment
 WARMUP_SECONDS=120 CAPTURE_SECONDS=30 \
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
 ```
 
 ## Plotting

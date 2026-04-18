@@ -116,40 +116,42 @@ This protocol assumes:
 ### 1. Start The Baseline Server
 
 ```bash
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh baseline
+scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh baseline
 ```
 
 ### 2. Run The Baseline AIPerf Sweep
 
 ```bash
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_aiperf_sweep.sh baseline
+scripts/step6_ple_gelu_and_mul_fusion/run_aiperf_sweep.sh baseline
 ```
 
 ### 3. Start The Fusion Server
 
 ```bash
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh ple-gelu-and-mul-fusion
+scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh ple-gelu-and-mul-fusion
 ```
 
 ### 4. Run The Fusion AIPerf Sweep
 
 ```bash
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_aiperf_sweep.sh ple-gelu-and-mul-fusion
+scripts/step6_ple_gelu_and_mul_fusion/run_aiperf_sweep.sh ple-gelu-and-mul-fusion
 ```
 
 ### 5. Collect Steady-State `nsys`
 
 Use two shells:
 
-1. shell 1 runs the server and leaves it up
-2. shell 2 runs the `nsys` wrapper below
+1. shell 1 runs the server under `nsys`
+2. shell 2 drives load into that server
 
-The wrapper already includes a warm-up period before tracing starts. It sends the benchmark load immediately, waits `200` seconds, and records only the following `30` seconds. That warm-up window is there to exclude one-time work such as `torch.compile`, CUDA graph capture, allocator growth, and first-use kernel setup.
+The earlier PLE wrapper was incorrect because it ran `nsys` around the client-side benchmark process. That does not capture the server GPU work you actually care about. The corrected wrapper now runs `nsys` around `vllm serve`, which matches the intent of the older steady-state protocols.
+
+The wrapper includes a delayed capture window. It launches the server under `nsys`, waits `200` seconds, and records only the following `30` seconds. That warm-up window is there to exclude one-time work such as `torch.compile`, CUDA graph capture, allocator growth, and first-use kernel setup.
 
 So the practical rule is:
 
-- do **not** start `nsys` until the server is healthy
-- do **not** start a second manual load generator unless you intentionally want extra pre-warming
+- shell 1 runs `run_nsys_protocol.sh`, not `serve_gemma4_experiment.sh`
+- shell 2 must send traffic during the delay window so the captured 30-second slice contains steady-state decoding work
 - the script's own `--delay 200` is the normal warm-up mechanism
 
 Baseline example:
@@ -157,17 +159,17 @@ Baseline example:
 Shell 1:
 
 ```bash
-cd ~/gpu-assignment
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh baseline
+cd ~/gpu-assignment/gpu-assignment
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
 ```
 
-Wait until the server is ready to accept requests.
+Wait until the server is ready to accept requests, then start shell 2.
 
 Shell 2:
 
 ```bash
-cd ~/gpu-assignment
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
+cd ~/gpu-assignment/gpu-assignment
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_load.sh baseline
 ```
 
 Then repeat the same two-shell process for fusion.
@@ -175,23 +177,23 @@ Then repeat the same two-shell process for fusion.
 Shell 1:
 
 ```bash
-cd ~/gpu-assignment
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh ple-gelu-and-mul-fusion
+cd ~/gpu-assignment/gpu-assignment
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh ple-gelu-and-mul-fusion
 ```
 
 Shell 2:
 
 ```bash
-cd ~/gpu-assignment
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh ple-gelu-and-mul-fusion
+cd ~/gpu-assignment/gpu-assignment
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_load.sh ple-gelu-and-mul-fusion
 ```
 
 If you want to shorten or lengthen the pre-trace warm-up window, override:
 
 ```bash
-cd ~/gpu-assignment
+cd ~/gpu-assignment/gpu-assignment
 WARMUP_SECONDS=120 CAPTURE_SECONDS=30 \
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
 ```
 
 If you want the exact command that the wrapper runs, the baseline equivalent is:
@@ -199,31 +201,44 @@ If you want the exact command that the wrapper runs, the baseline equivalent is:
 ```bash
 cd ~/vllm
 source .venv/bin/activate
-PYTHONPATH=~/vllm nsys profile \
+rm -rf ~/.cache/vllm/torch_compile_cache
+VLLM_NVTX_SCOPES_FOR_PROFILING=1 \
+VLLM_CUSTOM_SCOPES_FOR_PROFILING=1 \
+CUDA_VISIBLE_DEVICES=0 \
+nsys profile \
   --trace=cuda,nvtx \
   --sample=none \
   --cuda-graph-trace=node \
   --delay 200 \
   --duration 30 \
   --output ~/gpu-assignment-results/step6-ple-gelu-and-mul-fusion-protocol/nsys/baseline_compiled \
-  python -m vllm.benchmarks.serve \
-    --backend openai-chat \
-    --endpoint /v1/chat/completions \
-    --base-url http://localhost:8000 \
-    --model google/gemma-4-E2B-it \
-    --dataset-name random \
-    --num-prompts 128 \
-    --random-input-len 512 \
-    --random-output-len 128 \
-    --ignore-eos \
-    --save-result \
-    --result-dir ~/gpu-assignment-results/step6-ple-gelu-and-mul-fusion-protocol/load
+  vllm serve google/gemma-4-E2B-it \
+    --tensor-parallel-size 1 \
+    --dtype bfloat16 \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --language-model-only \
+    --max-model-len 4096 \
+    --max-num-seqs 8 \
+    --max-num-batched-tokens 1024 \
+    --gpu-memory-utilization 0.80 \
+    --enable-chunked-prefill \
+    --async-scheduling \
+    --compilation-config '{"mode":3,"cudagraph_mode":"FULL_AND_PIECEWISE"}' \
+    --gemma4-kernel-experiment baseline
+```
+
+The matching shell 2 load command is:
+
+```bash
+cd ~/gpu-assignment/gpu-assignment
+scripts/step6_ple_gelu_and_mul_fusion/run_nsys_load.sh baseline
 ```
 
 ### 6. Run The Microbenchmark
 
 ```bash
-gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_microbenchmarks.sh
+scripts/step6_ple_gelu_and_mul_fusion/run_microbenchmarks.sh
 ```
 
 ## Success Criteria
