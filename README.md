@@ -3,6 +3,8 @@
 This repo now has separate step documents:
 
 - `Part 1 Benchmarking.md`: setup and results template for the first vanilla `vllm` + `nsys` benchmark run
+- `Part-2-decoder-fusion.md`: decoder residual fusion report, source mapping, Part 1 baseline references, and expected changes
+- `scripts/part2_decoder_fusion/`: Part 2 run scripts for the decoder-residual-fusion benchmark and `nsys`
 - `Step3.md`: getting `Gemma 4 E2B` running on the EC2 instance
 - `Step4.md`: benchmarking the running server and building the step-4 Pareto curve
 - `Step5.md`: collecting and comparing Nsight Systems GPU traces

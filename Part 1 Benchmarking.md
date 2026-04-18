@@ -212,6 +212,57 @@ scripts/part1_benchmarking/run_aiperf_c4_load.sh
 
 Fill this section in after you collect artifacts.
 
+## Post-Process The `nsys` Trace
+
+After the run completes, generate a few CLI summaries from the saved trace.
+
+Set the trace path once:
+
+```bash
+TRACE=~/gpu-assignment-results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like.nsys-rep
+OUT=~/gpu-assignment-results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats
+```
+
+Generate the default text summary:
+
+```bash
+nsys stats "$TRACE" > "${OUT}.txt"
+```
+
+Generate a CSV-formatted summary:
+
+```bash
+nsys stats --format csv "$TRACE" > "${OUT}.csv"
+```
+
+If you want specific built-in reports, export them individually:
+
+```bash
+nsys stats \
+  --report cuda_api_sum,cuda_gpu_kern_sum,cuda_gpu_mem_time_sum,osrt_sum \
+  "$TRACE" > "${OUT}_focused.txt"
+```
+
+Those reports are useful for:
+
+- `cuda_api_sum`: host-side CUDA API time
+- `cuda_gpu_kern_sum`: GPU kernel time by kernel name
+- `cuda_gpu_mem_time_sum`: CUDA memcpy and memset time
+- `osrt_sum`: OS runtime behavior and host-side waits
+
+You can also export SQLite if you want to do deeper custom analysis later:
+
+```bash
+nsys export --type sqlite --output "${OUT}" "$TRACE"
+```
+
+That should create:
+
+- `${OUT}.txt`
+- `${OUT}.csv`
+- `${OUT}_focused.txt`
+- `${OUT}.sqlite`
+
 ### Environment
 
 - machine: 
@@ -255,6 +306,116 @@ Fill this section in after you collect artifacts.
 - obvious GPU idle regions:
 - obvious synchronization points:
 - follow-up questions:
+
+## Initial Analysis
+
+This section summarizes the first pass over:
+
+- the rich `nsys` timeline
+- `vanilla_gemma4_e2b_c4_aiperf_like_stats.txt`
+
+### High-Level Read
+
+The vanilla `vllm` run at concurrency `4` looks primarily compute-bound, not transfer-bound.
+
+The strongest signals are:
+
+- GPU time is dominated by a small number of CUTLASS BF16 GEMM kernels
+- host-side CUDA API time is dominated by `cudaEventSynchronize`
+- explicit host-to-device transfer volume is very small
+- there is a repeated cluster of small Triton kernels around norm / GELU / mul style work
+
+### Dominant GPU Kernels
+
+From `cuda_gpu_kern_sum`, the two biggest kernels are:
+
+- CUTLASS BF16 GEMM `...128x2...`: `63.6%`
+- CUTLASS BF16 GEMM `...128x1...`: `18.7%`
+
+Together they account for about `82.3%` of total GPU kernel time in this trace.
+
+This means the baseline run is overwhelmingly dominated by dense GEMM compute, which is expected for vanilla Gemma serving.
+
+The next tier is much smaller:
+
+- `kernel_unified_attention_3d`: `2.3%`
+- CUTLASS BF16 GEMM with ReLU: `2.3%`
+- `tensor_kernel_scan_innermost_dim<float, std::plus<float>>`: `1.8%`
+- `cunn_SoftMaxForward`: `1.1%`
+
+### Host-Side Behavior
+
+From `cuda_api_sum`, `cudaEventSynchronize` accounts for:
+
+- `92.5%` of CUDA API time
+- `29.39s` total
+- `2574` calls
+- `11.4 ms` average per call
+
+This means host-side CUDA API time is dominated by waiting for GPU events, not by kernel launch overhead.
+
+Important interpretation:
+
+- this does **not** automatically mean the run is bottlenecked by CPU overhead
+- it more likely means the CPU often waits for GPU work to complete
+- it becomes a serious optimization target only when those syncs line up with real GPU bubbles in the timeline
+
+In the zoomed regions inspected so far, `cudaEventSynchronize` often appears as part of the control loop, but not always as the cause of a large GPU idle gap.
+
+### Memory Operation Summary
+
+From `cuda_gpu_mem_time_sum` and `cuda_gpu_mem_size_sum`:
+
+- H2D total size is only about `16.1 MB`
+- D2H total size is negligible
+- D2D total size is much larger at about `5310 MB`
+- memsets and H2D copies are numerous, but individually very small
+
+Interpretation:
+
+- this run does **not** look host-to-device-transfer-bound
+- the H2D copies are many tiny control/data movements, not large payload transfers
+- the more substantial memory-motion category is device-to-device traffic, not PCIe traffic
+
+### Repeated Small-Kernel Cluster
+
+Several Triton kernels recur very frequently:
+
+- `triton_red_fused_add_rms_norm_0`: `0.6%`, `45036` instances
+- `triton_poi_fused_gelu_mul_slice_1`: `0.6%`, `45036` instances
+- `triton_red_fused_add_mul_rms_norm_4`: `0.6%`, `45036` instances
+- `triton_red_fused_add_rms_norm_2`: `0.4%`, `45036` instances
+- `triton_poi_fused_gelu_mul_3`: `0.2%`, `45036` instances
+
+Individually these are small, but together they form a repeated glue-kernel cluster that is more realistic to optimize than the large CUTLASS GEMMs.
+
+### Additional Follow-Up Candidate
+
+The scan and sort path is large enough to notice:
+
+- `tensor_kernel_scan_innermost_dim<float, std::plus<float>>`: `1.8%`
+- `DeviceRadixSortOnesweepKernel`: `0.6%`
+- plus smaller radix-sort helpers below that
+
+This path is worth investigating if it is on the steady-state decode path rather than only occasional housekeeping.
+
+### What Seems Less Important
+
+The first pass does **not** suggest starting with:
+
+- large H2D transfer optimization
+- generic CPU overload debugging
+- trying to out-optimize the dominant CUTLASS GEMMs
+
+Those are not where the current trace suggests the easiest wins are.
+
+### Best Optimization Targets To Investigate Next
+
+The most promising next targets are:
+
+1. the repeated Triton norm / GELU / mul fusion chain
+2. the scan + radix-sort path
+3. `cudaEventSynchronize` only where it clearly correlates with visible GPU bubbles
 
 ## Next Step
 
