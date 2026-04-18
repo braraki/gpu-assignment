@@ -27,6 +27,7 @@ The script set for this benchmark lives in [gpu-assignment/scripts/part1_benchma
 
 - [serve_vanilla_gemma4.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/serve_vanilla_gemma4.sh): runs the vanilla server without `nsys`
 - [profile_vanilla_gemma4_nsys.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/profile_vanilla_gemma4_nsys.sh): launches the server under `nsys`
+- [run_aiperf_sweep.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/run_aiperf_sweep.sh): runs the standard baseline `AIPerf` concurrency sweep
 - [run_aiperf_c4_load.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/run_aiperf_c4_load.sh): drives the `AIPerf`-shaped concurrency-4 load
 
 ## Why This Setup
@@ -96,6 +97,43 @@ In another shell:
 ```bash
 cd ~/gpu-assignment/gpu-assignment
 scripts/part1_benchmarking/run_aiperf_c4_load.sh
+```
+
+## Optional Baseline Sweep
+
+If you want a reusable script for the baseline `AIPerf` concurrency sweep, use:
+
+```bash
+cd ~/gpu-assignment/gpu-assignment
+scripts/part1_benchmarking/serve_vanilla_gemma4.sh
+```
+
+In another shell:
+
+```bash
+cd ~/gpu-assignment/gpu-assignment
+scripts/part1_benchmarking/run_aiperf_sweep.sh
+```
+
+Default sweep behavior:
+
+- waits for `http://localhost:8000/v1/models`
+- concurrencies: `1 2 4 8`
+- request count: `128`
+- warmup request count: `8`
+- synthetic input tokens mean: `512`
+- synthetic input tokens stddev: `0`
+- output tokens mean: `128`
+- output tokens stddev: `0`
+- extra inputs: `ignore_eos:true`
+- random seed: `0`
+- output artifact root: `~/gpu-assignment-results/part1-benchmarking/baseline-sweep/`
+
+To override the concurrency set:
+
+```bash
+cd ~/gpu-assignment/gpu-assignment
+scripts/part1_benchmarking/run_aiperf_sweep.sh 1 2 4
 ```
 
 ## Main Profiling Run

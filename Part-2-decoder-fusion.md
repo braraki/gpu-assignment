@@ -129,6 +129,10 @@ Part 1 as the baseline reference:
 
 - [Part 1 Benchmarking.md](</Users/brandonaraki/projects/gpu-assignment/gpu-assignment/Part 1 Benchmarking.md>)
 
+If you need to rerun the baseline sweep locally, Part 1 now includes:
+
+- [run_aiperf_sweep.sh](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part1_benchmarking/run_aiperf_sweep.sh)
+
 The baseline stats file from Part 1 is:
 
 - [vanilla_gemma4_e2b_c4_aiperf_like_stats.txt](/Users/brandonaraki/projects/gpu-assignment/results/part-1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:1)

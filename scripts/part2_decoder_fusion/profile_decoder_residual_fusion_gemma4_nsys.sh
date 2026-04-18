@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 NSYS_DIR="${RESULTS_ROOT}/nsys"
-WARMUP_SECONDS="${WARMUP_SECONDS:-140}"
+WARMUP_SECONDS="${WARMUP_SECONDS:-200}"
 CAPTURE_SECONDS="${CAPTURE_SECONDS:-30}"
 TRACE_NAME="${TRACE_NAME:-decoder_residual_fusion}"
 NSYS_TRACE="${NSYS_TRACE:-cuda,nvtx,osrt}"
