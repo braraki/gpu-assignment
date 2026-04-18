@@ -125,12 +125,19 @@ This writes:
 
 The microbenchmark compares:
 
-- `native_separate`
-- `native_compiled`
-- `cat_plus_existing_custom`
-- `custom_two_input`
+- `native_separate`: the unfused reference expression, `gelu(gate, approximate="tanh") * per_layer_input`
+- `native_compiled`: the same unfused reference expression wrapped in `torch.compile`
+- `cat_plus_existing_custom`: an ablation that packs `[gate, per_layer_input]` with `torch.cat(...)` and then calls the existing packed `gelu_tanh_and_mul` custom op
+- `custom_two_input`: the new direct two-input custom kernel, `ple_gelu_tanh_and_mul(gate, per_layer_input)`, with no intermediate `cat`
 
 ### 4. Run The Steady-State `nsys` Protocol
+
+Use two shells:
+
+1. shell 1 starts the server and leaves it running
+2. shell 2 runs the `nsys` wrapper
+
+The wrapper self-warms before tracing. It starts sending load immediately, waits `200` seconds, and records only the next `30` seconds. That means you normally do **not** need a separate manual warm-load shell.
 
 ```bash
 gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline

@@ -139,9 +139,52 @@ gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_aiperf_sweep.sh ple-gel
 
 ### 5. Collect Steady-State `nsys`
 
+Use two shells:
+
+1. shell 1 runs the server and leaves it up
+2. shell 2 runs the `nsys` wrapper below
+
+The wrapper already includes a warm-up period before tracing starts. It sends the benchmark load immediately, waits `200` seconds, and records only the following `30` seconds. That warm-up window is there to exclude one-time work such as `torch.compile`, CUDA graph capture, allocator growth, and first-use kernel setup.
+
+So the practical rule is:
+
+- do **not** start `nsys` until the server is healthy
+- do **not** start a second manual load generator unless you intentionally want extra pre-warming
+- the script's own `--delay 200` is the normal warm-up mechanism
+
+Shell 1:
+
+```bash
+gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh baseline
+```
+
+Wait until the server is ready to accept requests.
+
+Shell 2:
+
 ```bash
 gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
+```
+
+Then repeat the same two-shell process for fusion:
+
+Shell 1:
+
+```bash
+gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh ple-gelu-and-mul-fusion
+```
+
+Shell 2:
+
+```bash
 gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh ple-gelu-and-mul-fusion
+```
+
+If you want to shorten or lengthen the pre-trace warm-up window, override:
+
+```bash
+WARMUP_SECONDS=120 CAPTURE_SECONDS=30 \
+gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
 ```
 
 ### 6. Run The Microbenchmark
