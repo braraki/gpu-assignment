@@ -66,6 +66,92 @@ The hypothesis is:
 - throughput improvements should show up most clearly for streaming decode at
   lower concurrency (`c1`, `c2`)
 
+## Recorded Findings
+
+The first compiled `nsys` traces for this experiment included server startup,
+compile, and graph-capture activity, so they were not reliable for attributing
+steady-state bottlenecks. After rerunning `nsys` with delayed capture to isolate
+the serving window, the conclusion became much clearer:
+
+- the async output sync change worked mechanically
+- it reduced `cudaEventSynchronize`
+- but `cudaEventSynchronize` was already a tiny steady-state cost
+- so the experiment had almost no effect on end-to-end step-6 performance
+
+### Steady-State `nsys` Results
+
+Steady-state compiled traces showed:
+
+- baseline `cudaEventSynchronize`: `20.5 ms` total across `2732` calls
+- async-output-sync-reduction `cudaEventSynchronize`: `16.5 ms` total across
+  `2278` calls
+
+So the optimization reduced sync overhead, but only by a few milliseconds over
+the entire captured window. That is far too small to drive a meaningful
+throughput improvement.
+
+The larger steady-state signals were:
+
+- `preprocess` remained the largest meaningful NVTX bucket
+  - baseline median: `1.704 ms`
+  - async-output-sync-reduction median: `1.677 ms`
+- `sample` remained the next largest steady-state region
+  - baseline median: `0.914 ms`
+  - async-output-sync-reduction median: `0.894 ms`
+- `forward` median remained much smaller
+  - baseline median: `0.144 ms`
+  - async-output-sync-reduction median: `0.145 ms`
+
+The CUDA API picture in steady state also changed relative to the contaminated
+startup traces:
+
+- `cudaLaunchKernel` was the largest CUDA API bucket
+  - baseline: `1.185 s`
+  - async-output-sync-reduction: `0.952 s`
+- `cudaMemcpyAsync` was second
+  - baseline: `0.471 s`
+  - async-output-sync-reduction: `0.387 s`
+- host-to-device transfer volume was tiny in absolute terms
+  - baseline: `8.657 MB`
+  - async-output-sync-reduction: `7.218 MB`
+
+This means the steady-state serving path is dominated much more by many small
+kernel launches and model compute than by large host-to-device payloads or
+output-side synchronization.
+
+### What This Experiment Proved
+
+This experiment successfully validated the narrow diagnosis it was built to
+test:
+
+- the async sampled-token handoff did perform duplicate waits in the baseline
+- the shared sampled-token result object removed that duplication
+- both consumers now reuse the same readiness/materialization state
+
+But it also falsified the stronger step-6 performance hypothesis:
+
+- duplicate sampled-token waits were not a meaningful end-to-end throughput
+  limiter in steady-state compiled serving
+
+### Practical Conclusion
+
+For step 6, async output sync reduction should be treated as a completed
+diagnostic experiment rather than an optimization direction worth extending:
+
+- it improved a real but tiny overhead
+- it did not materially change the critical path
+- more work in this area is unlikely to pay off
+
+The next low-hanging fruit should come from either:
+
+- reducing preprocess-time launch count / per-step metadata work, or
+- improving model compute in the dominant decoder path
+
+The strongest steady-state GPU signal is still the main `gemvx` kernel family,
+which accounts for about `79.5%` of GPU kernel time in both baseline and
+experiment traces. That makes compute-path optimization a better next target
+than more async output handoff cleanup.
+
 ## Commands To Run The Experiment
 
 This section assumes:
@@ -219,13 +305,24 @@ python3 plot_aiperf_pareto.py \
 
 ## Success Criteria
 
-This experiment is promising if all of the following hold:
+The original success criteria were:
 
 - no correctness regression in streaming outputs
 - compiled `nsys` traces show materially fewer `cudaEventSynchronize` calls per
   `forward`
 - AIPerf output tokens/sec does not regress versus baseline
 - the preferred outcome is an improvement at `c1` or `c2`
+
+Observed outcome after rerunning `nsys` in a delayed steady-state window:
+
+- correctness was preserved
+- compiled `nsys` traces showed a small but real drop in
+  `cudaEventSynchronize`
+- throughput improvement was negligible
+
+So the experiment validated the diagnosis about duplicate waits, but falsified
+the stronger hypothesis that those waits were a meaningful steady-state
+throughput limiter.
 
 ## Caveats
 
@@ -235,3 +332,8 @@ This experiment is promising if all of the following hold:
   incremental rather than dramatic wins.
 - If throughput regresses while `cudaEventSynchronize` drops, the regression is
   likely elsewhere in the serving path and should be investigated separately.
+- The initial non-delayed compiled traces were startup-contaminated and should
+  not be used to attribute steady-state bottlenecks.
+- In the delayed steady-state traces, the main signals were preprocess, sample,
+  kernel-launch overhead, and dominant decoder compute rather than output-side
+  sync.
