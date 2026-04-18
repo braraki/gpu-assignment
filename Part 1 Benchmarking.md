@@ -115,10 +115,21 @@ Default behavior:
 - sets `VLLM_WORKER_MULTIPROC_METHOD=spawn`
 - enables `VLLM_NVTX_SCOPES_FOR_PROFILING=1`
 - enables `VLLM_CUSTOM_SCOPES_FOR_PROFILING=1`
+- traces `cuda,nvtx,osrt`
+- enables CPU sampling with `--sample=process-tree`
+- enables CPU context switch capture with `--cpuctxsw=process-tree`
 - waits `140` seconds before capture
 - records `30` seconds of trace time
 
 Those defaults assume the server takes about `80` seconds to become ready and leave about `60` additional seconds for post-startup warm-up before the profiler starts recording.
+
+This is now a richer trace than the original low-overhead `cuda,nvtx` pass. The goal is to capture:
+
+- GPU kernels and CUDA API activity
+- explicit CUDA memcpy and memset activity
+- NVTX scopes from `vllm`
+- OS runtime behavior
+- CPU sampling and thread scheduling information
 
 ### Shell 2: Start The Concurrency-4 Benchmark Load
 
@@ -173,6 +184,14 @@ TRACE_NAME=vanilla_trial_2 \
 scripts/part1_benchmarking/profile_vanilla_gemma4_nsys.sh
 ```
 
+Fall back to the lighter trace shape if needed:
+
+```bash
+cd ~/gpu-assignment/gpu-assignment
+NSYS_TRACE=cuda,nvtx NSYS_SAMPLE=none NSYS_CPUCTXSW=none \
+scripts/part1_benchmarking/profile_vanilla_gemma4_nsys.sh
+```
+
 For a matching custom load artifact name, run shell 2 with:
 
 ```bash
@@ -195,12 +214,12 @@ Fill this section in after you collect artifacts.
 
 ### Environment
 
-- machine:
-- GPU:
-- CUDA driver:
-- `vllm` commit:
-- `nsys` version:
-- date:
+- machine: 
+- GPU: Nvidia L4
+- CUDA driver: 580.126.16 (v13.0)
+- `vllm` commit: 519df1faec350f517368cea1636415e4ebac9f76
+- `nsys` version: 2025.3.2.474-253236389321v0
+- date: 4/18/2026
 
 ### Server Config Used
 

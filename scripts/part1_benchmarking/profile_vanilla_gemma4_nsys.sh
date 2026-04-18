@@ -12,6 +12,9 @@ MODEL="${MODEL:-google/gemma-4-E2B-it}"
 WARMUP_SECONDS="${WARMUP_SECONDS:-140}"
 CAPTURE_SECONDS="${CAPTURE_SECONDS:-30}"
 TRACE_NAME="${TRACE_NAME:-vanilla_gemma4_e2b_c4_aiperf_like}"
+NSYS_TRACE="${NSYS_TRACE:-cuda,nvtx,osrt}"
+NSYS_SAMPLE="${NSYS_SAMPLE:-process-tree}"
+NSYS_CPUCTXSW="${NSYS_CPUCTXSW:-process-tree}"
 
 mkdir -p "$NSYS_DIR"
 cd "$VLLM_DIR"
@@ -27,6 +30,9 @@ echo "Server URL: http://localhost:${PORT}"
 echo "Trace output prefix: ${NSYS_DIR}/${TRACE_NAME}"
 echo "Warm-up before capture: ${WARMUP_SECONDS}s"
 echo "Capture duration: ${CAPTURE_SECONDS}s"
+echo "Trace domains: ${NSYS_TRACE}"
+echo "CPU sampling: ${NSYS_SAMPLE}"
+echo "CPU context switches: ${NSYS_CPUCTXSW}"
 echo
 echo "This default assumes server startup takes about 80s and leaves"
 echo "roughly 60s of post-startup warm-up before capture begins."
@@ -40,8 +46,9 @@ export VLLM_CUSTOM_SCOPES_FOR_PROFILING="${VLLM_CUSTOM_SCOPES_FOR_PROFILING:-1}"
 
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" \
 nsys profile \
-  --trace=cuda,nvtx \
-  --sample=none \
+  --trace "$NSYS_TRACE" \
+  --sample "$NSYS_SAMPLE" \
+  --cpuctxsw="$NSYS_CPUCTXSW" \
   --cuda-graph-trace=node \
   --trace-fork-before-exec=true \
   --delay "$WARMUP_SECONDS" \
