@@ -27,6 +27,8 @@ echo "Capture duration: ${CAPTURE_SECONDS}s"
 echo "Trace domains: ${NSYS_TRACE}"
 echo "CPU sampling: ${NSYS_SAMPLE}"
 echo "CPU context switches: ${NSYS_CPUCTXSW}"
+echo "VLLM NVTX scopes: ${VLLM_NVTX_SCOPES_FOR_PROFILING}"
+echo "VLLM custom scopes: ${VLLM_CUSTOM_SCOPES_FOR_PROFILING}"
 
 rm -rf ~/.cache/vllm/torch_compile_cache
 

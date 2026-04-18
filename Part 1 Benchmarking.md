@@ -152,7 +152,7 @@ Default behavior:
 - clears `~/.cache/vllm/torch_compile_cache`
 - sets `VLLM_WORKER_MULTIPROC_METHOD=spawn`
 - enables `VLLM_NVTX_SCOPES_FOR_PROFILING=1`
-- enables `VLLM_CUSTOM_SCOPES_FOR_PROFILING=1`
+- sets `VLLM_CUSTOM_SCOPES_FOR_PROFILING=0`
 - traces `cuda,nvtx,osrt`
 - enables CPU sampling with `--sample=process-tree`
 - enables CPU context switch capture with `--cpuctxsw=process-tree`
@@ -168,6 +168,11 @@ This is now a richer trace than the original low-overhead `cuda,nvtx` pass. The 
 - NVTX scopes from `vllm`
 - OS runtime behavior
 - CPU sampling and thread scheduling information
+
+For `nsys`, the script prefers actual NVTX ranges over PyTorch
+`record_function(...)` ranges. That is why the profiling harness enables
+`VLLM_NVTX_SCOPES_FOR_PROFILING=1` but leaves
+`VLLM_CUSTOM_SCOPES_FOR_PROFILING=0` by default.
 
 ### Shell 2: Start The Concurrency-4 Benchmark Load
 
