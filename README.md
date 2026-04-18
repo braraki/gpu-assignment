@@ -2,6 +2,7 @@
 
 This repo now has separate step documents:
 
+- `Part 1 Benchmarking.md`: setup and results template for the first vanilla `vllm` + `nsys` benchmark run
 - `Step3.md`: getting `Gemma 4 E2B` running on the EC2 instance
 - `Step4.md`: benchmarking the running server and building the step-4 Pareto curve
 - `Step5.md`: collecting and comparing Nsight Systems GPU traces
