@@ -13,9 +13,22 @@ INPUT_TOKENS_MEAN="${INPUT_TOKENS_MEAN:-512}"
 INPUT_TOKENS_STDDEV="${INPUT_TOKENS_STDDEV:-0}"
 OUTPUT_TOKENS_MEAN="${OUTPUT_TOKENS_MEAN:-128}"
 OUTPUT_TOKENS_STDDEV="${OUTPUT_TOKENS_STDDEV:-0}"
+READY_TIMEOUT_SECONDS="${READY_TIMEOUT_SECONDS:-300}"
 
 mkdir -p "$LOAD_DIR"
 source "${AIPERF_VENV:-$HOME/aiperf-venv}/bin/activate"
+
+MODELS_URL="${BASE_URL%/}/v1/models"
+READY_DEADLINE=$((SECONDS + READY_TIMEOUT_SECONDS))
+
+echo "Waiting for server readiness at ${MODELS_URL}"
+until curl --silent --show-error --fail "$MODELS_URL" >/dev/null; do
+  if (( SECONDS >= READY_DEADLINE )); then
+    echo "Timed out waiting for server readiness after ${READY_TIMEOUT_SECONDS}s" >&2
+    exit 1
+  fi
+  sleep 1
+done
 
 echo "Driving AIPerf load against ${BASE_URL}"
 echo "Concurrency: ${CONCURRENCY}"

@@ -128,6 +128,7 @@ scripts/part1_benchmarking/run_aiperf_c4_load.sh
 
 Default load behavior:
 
+- waits for `http://localhost:8000/v1/models` before starting
 - concurrency: `4`
 - request count: `8192`
 - warmup request count: `16`
