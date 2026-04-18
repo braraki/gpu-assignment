@@ -42,7 +42,10 @@ That makes the trace much closer to the normal benchmarking path because it pres
 - synthetic input length: `512`
 - synthetic output length target: `128`
 - extra generation control: `ignore_eos:true`
+- random seed: `0`
 - concurrency control: `4`
+
+So the load is synthetic but reproducible, not fresh unseeded randomness on every run.
 
 The only meaningful change from the normal concurrency sweep is that this part fixes concurrency at `4` and uses one sustained run to keep the server busy during the profiling window.
 
@@ -136,6 +139,8 @@ Default load behavior:
 - synthetic input tokens stddev: `0`
 - output tokens mean: `128`
 - output tokens stddev: `0`
+- extra inputs: `ignore_eos:true`
+- random seed: `0`
 - endpoint: `/v1/chat/completions`
 - streaming: enabled
 - output artifact directory: `~/gpu-assignment-results/part1-benchmarking/load/vanilla_gemma4_e2b_c4_aiperf_like`
@@ -214,6 +219,8 @@ Fill this section in after you collect artifacts.
 - warmup request count:
 - synthetic input tokens:
 - synthetic output tokens:
+- extra inputs:
+- random seed:
 - streaming:
 
 ### Artifact Paths
