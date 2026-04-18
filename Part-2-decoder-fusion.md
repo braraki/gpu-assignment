@@ -212,6 +212,8 @@ It compares these providers:
   - explicit `hidden_states + residual`, then RMSNorm
 - `baseline_compiled`
   - the same baseline operator sequence wrapped in `torch.compile`
+- `fusion_compiled`
+  - the fused add+RMSNorm path wrapped in `torch.compile`
 - `fusion_custom_op`
   - vLLM's existing `fused_add_rms_norm(...)` path
 
@@ -243,6 +245,57 @@ The main CSV is:
 
 The script also writes one latency-vs-token-count plot per hidden size.
 
+### Dump Compiler-Generated Code
+
+To prove which generated kernels correspond to the isolated changed block, run
+the microbenchmark with compiler code dumping enabled for each compiled mode.
+
+Baseline compiled dump:
+
+```bash
+cd ~/gpu-assignment
+PROVIDER=baseline_compiled \
+gpu-assignment/scripts/part2_decoder_fusion/dump_microbenchmark_compiled_code.sh
+```
+
+Fusion compiled dump:
+
+```bash
+cd ~/gpu-assignment
+PROVIDER=fusion_compiled \
+gpu-assignment/scripts/part2_decoder_fusion/dump_microbenchmark_compiled_code.sh
+```
+
+By default this profiles the isolated operator at `1024` tokens and writes all
+artifacts under:
+
+- [results/part2-decoder-fusion/microbench/compiler_dumps](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/microbench/compiler_dumps)
+
+Each run directory contains:
+
+- `torch_output_code.log`
+  - stdout/stderr from `TORCH_LOGS=output_code,recompiles,graph_breaks`
+- `benchmark_outputs/`
+  - the one-provider benchmark CSV and plot
+- `vllm_cache/torch_compile_cache/`
+  - the saved Dynamo and Inductor-generated code, using
+    `VLLM_COMPILE_CACHE_SAVE_FORMAT=unpacked`
+
+What to compare:
+
+1. The baseline-compiled dump should lower the explicit add-then-RMSNorm
+   sequence from the unfused source form.
+2. The fusion-compiled dump should lower the `fused_add_rms_norm(...)` path.
+3. The kernel names and Triton code shapes observed there can then be matched
+   back to the full-server trace with much stronger confidence than kernel-name
+   guessing alone.
+
+Helpful overrides:
+
+- `NUM_TOKENS="256 1024"` to dump more than one token count
+- `HIDDEN_SIZES="1536"` to force a specific hidden size
+- `EPS="1e-6"` to override the model-derived RMSNorm epsilon
+
 ### How To Interpret A Win
 
 The main comparison of interest is:
@@ -253,6 +306,59 @@ The main comparison of interest is:
 This benchmark is successful if `fusion_custom_op` shows lower median latency
 than `baseline_compiled` at Gemma4-relevant token counts without failing the
 correctness check.
+
+### Results
+
+The downloaded microbenchmark results are in:
+
+- [decoder_residual_fusion_benchmark.csv](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/microbench/decoder_residual_fusion_benchmark.csv)
+- [decoder_residual_fusion_hidden_size_1536.png](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/microbench/decoder_residual_fusion_hidden_size_1536.png)
+
+This run used:
+
+- `hidden_size=1536`
+- `dtype=bfloat16`
+- token counts `1 4 16 64 256 1024`
+
+The main comparison, `baseline_compiled` vs `fusion_custom_op`, shows a clear
+size-dependent crossover:
+
+| Tokens | `baseline_compiled` ms | `fusion_custom_op` ms | Result |
+| --- | ---: | ---: | --- |
+| 1 | 0.003282 | 0.003527 | fusion slower by 7.5% |
+| 4 | 0.003562 | 0.003601 | fusion slower by 1.1% |
+| 16 | 0.003732 | 0.003788 | fusion slower by 1.5% |
+| 64 | 0.003989 | 0.004867 | fusion slower by 22.0% |
+| 256 | 0.006464 | 0.006269 | fusion faster by 3.0% |
+| 1024 | 0.019494 | 0.016163 | fusion faster by 17.1% |
+
+What jumps out:
+
+- `baseline_eager` is much slower everywhere, so `torch.compile` is already
+  doing a strong job on this operator sequence.
+- The fused custom op does **not** win uniformly. It loses at small token
+  counts and only starts to pull ahead once the workload is large enough.
+- The strongest win in this dataset is at `1024` tokens, where the fused path
+  is about `17%` faster than the compiled baseline.
+- The worst point is `64` tokens, where the fused path is about `22%` slower
+  than the compiled baseline.
+
+Interpretation:
+
+- The custom fused add+RMSNorm path appears to have a higher fixed-cost regime
+  than the compiled baseline, which hurts it on small inputs.
+- At larger token counts, the fused path begins to amortize that overhead and
+  outperform the compiled baseline.
+- So this experiment currently looks more promising for larger flattened token
+  batches than for latency-sensitive tiny batches.
+
+Practical takeaway:
+
+- This is **not** a blanket replacement win over `torch.compile`.
+- It is a conditional win that depends on workload size.
+- If we continue this direction, the next useful step is to compare these
+  token-count breakpoints against the actual serving shapes we hit most often
+  in Gemma4 production traces and benchmarks.
 
 ## What We Expect To Change
 
