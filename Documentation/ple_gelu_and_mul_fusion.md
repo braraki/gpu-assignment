@@ -139,9 +139,44 @@ Use two shells:
 
 The wrapper self-warms before tracing. It starts sending load immediately, waits `200` seconds, and records only the next `30` seconds. That means you normally do **not** need a separate manual warm-load shell.
 
+Baseline example:
+
+Shell 1:
+
 ```bash
+cd ~/gpu-assignment
+gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh baseline
+```
+
+Shell 2:
+
+```bash
+cd ~/gpu-assignment
 gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
+```
+
+Fusion example:
+
+Shell 1:
+
+```bash
+cd ~/gpu-assignment
+gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/serve_gemma4_experiment.sh ple-gelu-and-mul-fusion
+```
+
+Shell 2:
+
+```bash
+cd ~/gpu-assignment
 gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh ple-gelu-and-mul-fusion
+```
+
+Optional warm-up override:
+
+```bash
+cd ~/gpu-assignment
+WARMUP_SECONDS=120 CAPTURE_SECONDS=30 \
+gpu-assignment/scripts/step6_ple_gelu_and_mul_fusion/run_nsys_protocol.sh baseline
 ```
 
 ## Plotting
