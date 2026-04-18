@@ -448,52 +448,79 @@ But those small wins were not enough to offset the forward-path regression.
 
 ### Small Kernel Family Changes
 
-The compiler-generated RMSNorm family did change shape.
+The strongest full-trace kernel clue is now the `_0` family only.
 
-Baseline has:
-
-- `triton_red_fused_add_rms_norm_0`
-  `210,266,703 ns`
-  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:88)
-- `triton_red_fused_add_rms_norm_2`
-  `125,155,546 ns`
-  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:92)
-- `triton_red_fused_add_mul_rms_norm_4`
-  `177,989,701 ns`
-  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:90)
-
-Fusion has:
-
-- `triton_red_fused__to_copy_add_mean_mul_pow_rms_norm_rsqrt_0`
-  `180,364,094 ns`
-  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:89)
-- `triton_red_fused__to_copy_add_rms_norm_2`
-  `124,795,109 ns`
-  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:93)
-- `triton_red_fused_add_mul_rms_norm_4`
-  `177,384,419 ns`
-  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:91)
-
-If you sum those three RMSNorm-family kernels, the fusion trace is about `6%`
-lower than baseline. That is the strongest evidence in the saved logs that the
-decoder fusion changed something real in the intended direction.
-
-But that win is small relative to the full trace, and it is not visible at the
-overall forward-scope level.
-
-### What Did Not Meaningfully Change
-
-`cudaEventSynchronize` does not show a meaningful improvement:
+From the full server traces:
 
 - baseline:
-  `92.5%`, `29,464,003,682 ns`, `2,577` calls
-  [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:47)
+  - `triton_red_fused_add_rms_norm_0`
+  - `210,266,703 ns`
+  - [baseline stats](/Users/brandonaraki/projects/gpu-assignment/results/part1-benchmarking/nsys/vanilla_gemma4_e2b_c4_aiperf_like_stats.txt:100)
 - fusion:
-  `92.6%`, `29,268,454,487 ns`, `2,577` calls
-  [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:47)
+  - `triton_red_fused__to_copy_add_mean_mul_pow_rms_norm_rsqrt_0`
+  - `180,364,094 ns`
+  - [fusion stats](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/nsys/decoder_residual_fusion_stats.txt:102)
 
-So this experiment does not appear to move the host-side synchronization story
-in any meaningful way.
+That is a reduction of about `14.2%` in total kernel time for the most likely
+affected kernel motif.
+
+The reason we can now tie this kernel family to the changed source block is the
+isolated compiler dump from the operator microbenchmark.
+
+In the isolated **baseline compiled** microbenchmark, the dumped Inductor graph
+for the exact changed block shows:
+
+- source ops:
+  - `aten.add`
+  - `_to_copy`
+  - `aten.pow`
+  - `aten.mean`
+  - `aten.rsqrt`
+  - `aten.mul`
+  - [baseline compiled dump](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/baseline_compiled_tokens1024/torch_output_code.log:42)
+- generated Triton kernel:
+  - `triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_0`
+  - [baseline compiled dump](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/baseline_compiled_tokens1024/torch_output_code.log:69)
+- launch site:
+  - [baseline compiled dump](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/baseline_compiled_tokens1024/torch_output_code.log:158)
+
+That is exactly the unfused source pattern we changed in `gemma4.py`:
+
+1. residual add
+2. type conversion
+3. RMSNorm reduction math
+4. weight multiply
+
+So the isolated compiler dump proves that this kernel shape is a valid compiled
+form of the baseline decoder residual handoff.
+
+In the isolated **fusion compiled** microbenchmark, the changed block does not
+lower into another RMSNorm Triton reduction kernel. Instead, the dump shows a
+direct custom-op call:
+
+- `torch.ops._C.fused_add_rms_norm.default(...)`
+  [fusion compiled dump](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/fusion_compiled_tokens1024/torch_output_code.log:109)
+
+with only clone helper Triton kernels around it:
+
+- `triton_poi_fused_as_strided_clone_0`
+  [fusion compiled dump](/Users/brandonaraki/projects/gpu-assignment/results/part2-decoder-fusion/fusion_compiled_tokens1024/torch_output_code.log:50)
+
+That means the compiler-dump proof is strongest in one direction:
+
+- it proves that the baseline source block can compile into the
+  `triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_0` family
+- it does **not** justify treating every RMSNorm-family kernel in the fusion
+  server trace as the decoder-fusion replacement
+
+Because of that, I no longer treat these as decoder-fusion evidence:
+
+- `triton_red_fused_add_mul_rms_norm_4`
+- `triton_red_fused_add_rms_norm_2`
+- `triton_red_fused__to_copy_add_rms_norm_2`
+
+Those kernels may come from other unchanged decoder norm sites and should not
+be used as primary proof for this experiment.
 
 ### End-To-End Benchmark Caveat
 
@@ -552,7 +579,8 @@ The current result is:
 
 So the right write-up is:
 
-- **micro-level kernel decomposition changed**
+- **the baseline decoder residual block maps directly to a specific compiled kernel family**
+- **that kernel family is cheaper in the full fusion server trace**
 - **macro-level improvement not demonstrated from these saved logs**
 
 The next step is to run a clean fusion `AIPerf` sweep, outside the forced

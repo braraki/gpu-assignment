@@ -46,6 +46,10 @@ EXPERIMENT_SPECS = {
         "step6-qk-norm-rope-fusion",
         "qk_norm_rope_fusion_512_c*",
     ),
+    "qkv-norm-rope-vnorm-fusion": (
+        "part3-qk-norm-rope-fusion/qkv-norm-rope-vnorm-fusion",
+        "c*",
+    ),
 }
 
 
@@ -101,6 +105,7 @@ def parse_args() -> argparse.Namespace:
             "--series async-output-sync-reduction=async_output_sync_reduction_c* "
             "--series decoder-residual-fusion=decoder_residual_fusion_c* "
             "--series ple-gelu-and-mul-fusion=ple_gelu_and_mul_fusion_c* "
+            "--series qkv-norm-rope-vnorm-fusion=qkv_norm_rope_vnorm_fusion_c* "
             "or --series qk-norm-rope-fusion-lt-512="
             "~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512::"
             "qk_norm_rope_fusion_lt_512_c*. When provided, all series are "

@@ -1,384 +1,168 @@
-# Gemma 4 Q/K RMSNorm + RoPE Fusion Notes
+# Gemma 4 Q/K Norm + RoPE Fusion Notes
 
 ## Goal
 
-Evaluate the existing `fused_qk_norm_rope` infrastructure on `Gemma 4 E2B` in two separate experiment modes:
+Part 3 now treats Q/K RMSNorm + RoPE as the **control path** for a broader
+attention-prep experiment family.
 
-- `qk-norm-rope-fusion-lt-512`: control experiment that fuses only supported sub-`512` attention signatures
-- `qk-norm-rope-fusion-512`: CUDA-only follow-up that also enables `head_dim=512` fusion
+There are now two closely related experiment modes:
 
-The important framing is:
+- `qk-norm-rope-fusion-512`
+- `qkv-norm-rope-vnorm-fusion`
 
-- `lt-512` remains the lower-risk partial-layer control
-- `512` is a separate end-to-end experiment, not a widening of the control mode
-- switching kernel revisions or experiment modes requires a fresh torch compile cache
-- changing `vllm/csrc/fused_qknorm_rope_kernel.cu` also requires rebuilding the installed `vllm` extension
+The control path keeps the existing fused Q/K RMSNorm + RoPE custom op.
+
+The new kernel path extends that idea to the full non-KV-shared Gemma4
+attention-prep block by also folding in weightless V RMSNorm.
 
 ## Why This Experiment Exists
 
-This remains the most direct follow-on to decoder residual fusion because `vLLM` already contains:
+This remains a stronger next target than another decoder epilogue cleanup.
 
-- a fused `fused_qk_norm_rope` custom op
-- a compile pass that matches unfused Q/K RMSNorm + RoPE
-- kernel tests and compile-pass tests for that path
+The Part 1 baseline still shows:
 
-That means the work is mostly:
+- two dominant GEMM families at `63.6%` and `18.7%`
+- visible attention kernels at `2.3%` and `0.9%`
+- decoder residual kernels that were far smaller than that
 
-- extending the CUDA kernel to cover `head_dim=512`
-- gating the compile pass correctly per experiment mode
-- benchmarking the new end-to-end mode cleanly against baseline and `lt-512`
+So the practical next step is to move closer to the attention path while
+keeping the source-level change narrow enough to validate cleanly.
 
 ## Gemma 4 Attention Layout
 
-`Gemma 4 E2B` does not use one uniform attention signature across all decoder layers. In practice the relevant signatures are:
+For the relevant non-KV-shared layers, Gemma4 attention prep is:
+
+1. `q_norm`
+2. `k_norm`
+3. `rotary_emb(q, k)`
+4. `v_norm`
+
+The current Gemma4 attention signatures of interest are:
 
 - `(256, 8, 1)`
 - `(512, 8, 1)`
 
-That means:
-
-- `qk-norm-rope-fusion-lt-512` should fuse only the `256` family
-- `qk-norm-rope-fusion-512` should fuse both the `256` and `512` families on CUDA
-
-The compile pass now registers one pattern per discovered attention signature and guards each rewrite so a `256` registration cannot rewrite a `512` site, and vice versa.
+The first Part 3 kernel iteration targets only those signatures.
 
 ## Public Experiment Modes
-
-The public interface stays behind the same single Gemma 4 flag:
 
 ```bash
 --gemma4-kernel-experiment baseline
 --gemma4-kernel-experiment qk-norm-rope-fusion-lt-512
 --gemma4-kernel-experiment qk-norm-rope-fusion-512
+--gemma4-kernel-experiment qkv-norm-rope-vnorm-fusion
 ```
 
 Mode semantics:
 
-- `baseline`: existing decoder behavior
-- `qk-norm-rope-fusion-lt-512`: enables the fusion pass but only registers supported signatures below `512`
-- `qk-norm-rope-fusion-512`: CUDA-only mode that enables the same pass machinery and allows `512`-dim fusion as well
+- `baseline`: existing decoder and attention behavior
+- `qk-norm-rope-fusion-lt-512`: control mode that only fuses supported
+  sub-`512` Q/K signatures
+- `qk-norm-rope-fusion-512`: control mode that fuses both Gemma4 Q/K
+  signatures on CUDA
+- `qkv-norm-rope-vnorm-fusion`: new CUDA-only mode that fuses Q/K RMSNorm,
+  RoPE, and V RMSNorm for non-KV-shared Gemma4 attention-prep blocks
 
-Both fusion modes automatically enable:
+Both fusion families require:
 
 - `pass_config.enable_qk_norm_rope_fusion = True`
 - `+rms_norm`
 - `+rotary_embedding`
 
-No extra manual `compilation-config` overrides are needed beyond the standard step-3 launch command.
+## Source Mapping
+
+The source block is in:
+
+- [gemma4.py](/Users/brandonaraki/projects/gpu-assignment/vllm/vllm/model_executor/models/gemma4.py)
+
+The compile pass is in:
+
+- [qk_norm_rope_fusion.py](/Users/brandonaraki/projects/gpu-assignment/vllm/vllm/compilation/passes/fusion/qk_norm_rope_fusion.py)
+
+The CUDA kernels are in:
+
+- [fused_qknorm_rope_kernel.cu](/Users/brandonaraki/projects/gpu-assignment/vllm/csrc/fused_qknorm_rope_kernel.cu)
+
+The new Part 3 op is:
+
+- `torch.ops._C.fused_qkv_norm_rope_vnorm(...)`
 
 ## Cache Hygiene
 
-`torch.compile` artifacts are keyed separately from the server launch command, so a stale cache can hide a new kernel or pass change. Before switching:
-
-- between `lt-512` and `512`
-- after pulling a new `vllm` revision
-- after changing kernel heuristics
-
-clear the compile cache:
+Switching between control and new-kernel modes requires a fresh torch compile
+cache:
 
 ```bash
 rm -rf ~/.cache/vllm/torch_compile_cache
 ```
 
-If you do not clear it, the server can load an older compiled graph that still contains the previous fused call pattern.
-
-If you changed any C++/CUDA source under `~/vllm/csrc`, cache clearing is not enough. You must also rebuild the editable install so the loaded `torch.ops._C` binary matches the source tree:
+If any CUDA source changed, rebuild the editable install:
 
 ```bash
 cd ~/vllm
 source .venv/bin/activate
-
 uv pip install -e . --torch-backend=auto
 ```
 
-The failure
+## Scripts
 
-```text
-RuntimeError: Unsupported head dimension for fusedQKNormRope: 512
-```
+Part 3 uses:
 
-coming from `torch.ops._C.fused_qk_norm_rope` usually means the compile pass registered the `(512, 8, 1)` signature from Python, but the installed native extension is still an older build that does not contain the `head_dim=512` launcher path.
+- [scripts/part3_qk_norm_rope_fusion](/Users/brandonaraki/projects/gpu-assignment/gpu-assignment/scripts/part3_qk_norm_rope_fusion)
 
-Before launching the `qk-norm-rope-fusion-512` server, run this smoke test once on the EC2 box:
+Important entry points:
 
-```bash
-cd ~/vllm
-source .venv/bin/activate
+- `serve_qk_norm_rope_fusion_gemma4.sh`
+- `run_aiperf_sweep.sh`
+- `run_aiperf_c4_load.sh`
+- `run_microbenchmark.sh`
+- `dump_microbenchmark_compiled_code.sh`
+- `profile_qkv_norm_rope_vnorm_gemma4_nsys.sh`
+- `process_nsys_report.sh`
 
-.venv/bin/python -m pytest tests/kernels/core/test_fused_qk_norm_rope.py -k head_dim_512 -v
-```
+## What To Look For In `nsys`
 
-If that test fails with the same `Unsupported head dimension` error, do not start the server yet. Rebuild `vllm`, then rerun the test.
+The Part 3 attention-prep scopes are:
 
-## Commands To Run The Experiments
+- `gemma4.attention.prep:baseline`
+- `gemma4.attention.prep:qk_norm_rope_fusion_lt_512`
+- `gemma4.attention.prep:qk_norm_rope_fusion_512`
+- `gemma4.attention.prep:qkv_norm_rope_vnorm_fusion`
 
-This section assumes:
+This is important because the current baseline `nsys stats` do not expose
+Q/K norm + RoPE as a clean named kernel row. Part 3 is designed to make the
+source-level region attributable even when the kernel summary remains indirect.
 
-- `vllm` and `AIPerf` run on the EC2 instance
-- the model is `google/gemma-4-E2B-it`
-- baseline benchmark artifacts live under `~/gpu-assignment-results/step6-baseline`
-- LT-512 artifacts live under `~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512`
-- CUDA 512 artifacts live under `~/gpu-assignment-results/step6-qk-norm-rope-fusion`
-- plotting is run from the cloned `gpu-assignment` repo at `~/gpu-assignment`
+## Microbenchmark
 
-### 1. Start The Baseline Server
+The operator benchmark is:
 
-```bash
-cd ~/vllm
-source .venv/bin/activate
+- [benchmark_qkv_norm_rope_vnorm.py](/Users/brandonaraki/projects/gpu-assignment/vllm/benchmarks/kernels/benchmark_qkv_norm_rope_vnorm.py)
 
-rm -rf ~/.cache/vllm/torch_compile_cache
+Default providers:
 
-CUDA_VISIBLE_DEVICES=0 \
-vllm serve google/gemma-4-E2B-it \
-  --tensor-parallel-size 1 \
-  --dtype bfloat16 \
-  --host 0.0.0.0 \
-  --port 8000 \
-  --language-model-only \
-  --max-model-len 4096 \
-  --max-num-seqs 8 \
-  --max-num-batched-tokens 1024 \
-  --gpu-memory-utilization 0.80 \
-  --enable-chunked-prefill \
-  --async-scheduling \
-  --compilation-config '{"mode":3,"cudagraph_mode":"FULL_AND_PIECEWISE"}' \
-  --gemma4-kernel-experiment baseline
-```
+- `baseline_eager`
+- `baseline_compiled`
+- `qk_fusion_compiled`
+- `qk_fusion_custom_op`
+- `attention_prep_custom_op`
 
-### 2. Run The Baseline AIPerf Sweep
+There is also an internal:
 
-```bash
-mkdir -p ~/gpu-assignment-results/step6-baseline
-source ~/aiperf-venv/bin/activate
+- `attention_prep_compiled`
 
-for C in 1 2 4 8; do
-  echo "=== Baseline concurrency ${C} ==="
-  aiperf profile \
-    --model google/gemma-4-E2B-it \
-    --tokenizer google/gemma-4-E2B-it \
-    --url http://localhost:8000 \
-    --endpoint-type chat \
-    --endpoint v1/chat/completions \
-    --streaming \
-    --ui simple \
-    --concurrency "${C}" \
-    --request-count 128 \
-    --warmup-request-count 8 \
-    --synthetic-input-tokens-mean 512 \
-    --synthetic-input-tokens-stddev 0 \
-    --output-tokens-mean 128 \
-    --output-tokens-stddev 0 \
-    --extra-inputs ignore_eos:true \
-    --random-seed 0 \
-    --artifact-dir ~/gpu-assignment-results/step6-baseline/baseline_c${C}
-done
-```
-
-### 3. Start The LT-512 Control Server
-
-Stop the baseline server, then restart:
-
-```bash
-cd ~/vllm
-source .venv/bin/activate
-
-rm -rf ~/.cache/vllm/torch_compile_cache
-
-CUDA_VISIBLE_DEVICES=0 \
-vllm serve google/gemma-4-E2B-it \
-  --tensor-parallel-size 1 \
-  --dtype bfloat16 \
-  --host 0.0.0.0 \
-  --port 8000 \
-  --language-model-only \
-  --max-model-len 4096 \
-  --max-num-seqs 8 \
-  --max-num-batched-tokens 1024 \
-  --gpu-memory-utilization 0.80 \
-  --enable-chunked-prefill \
-  --async-scheduling \
-  --compilation-config '{"mode":3,"cudagraph_mode":"FULL_AND_PIECEWISE"}' \
-  --gemma4-kernel-experiment qk-norm-rope-fusion-lt-512
-```
-
-### 4. Run The LT-512 Control Sweep
-
-```bash
-source ~/aiperf-venv/bin/activate
-
-for C in 1 2 4 8; do
-  echo "=== LT-512 Q/K-norm + RoPE fusion concurrency ${C} ==="
-  aiperf profile \
-    --model google/gemma-4-E2B-it \
-    --tokenizer google/gemma-4-E2B-it \
-    --url http://localhost:8000 \
-    --endpoint-type chat \
-    --endpoint v1/chat/completions \
-    --streaming \
-    --ui simple \
-    --concurrency "${C}" \
-    --request-count 128 \
-    --warmup-request-count 8 \
-    --synthetic-input-tokens-mean 512 \
-    --synthetic-input-tokens-stddev 0 \
-    --output-tokens-mean 128 \
-    --output-tokens-stddev 0 \
-    --extra-inputs ignore_eos:true \
-    --random-seed 0 \
-    --artifact-dir ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_c${C}
-done
-```
-
-### 5. Start The CUDA 512 Fusion Server
-
-Stop the `lt-512` server, then restart:
-
-```bash
-cd ~/vllm
-source .venv/bin/activate
-
-uv pip install -e . --torch-backend=auto
-rm -rf ~/.cache/vllm/torch_compile_cache
-
-CUDA_VISIBLE_DEVICES=0 \
-vllm serve google/gemma-4-E2B-it \
-  --tensor-parallel-size 1 \
-  --dtype bfloat16 \
-  --host 0.0.0.0 \
-  --port 8000 \
-  --language-model-only \
-  --max-model-len 4096 \
-  --max-num-seqs 8 \
-  --max-num-batched-tokens 1024 \
-  --gpu-memory-utilization 0.80 \
-  --enable-chunked-prefill \
-  --async-scheduling \
-  --compilation-config '{"mode":3,"cudagraph_mode":"FULL_AND_PIECEWISE"}' \
-  --gemma4-kernel-experiment qk-norm-rope-fusion-512
-```
-
-Expected startup logs should now include both Gemma 4 signatures:
-
-- `(256, 8, 1)`
-- `(512, 8, 1)`
-
-### 6. Run The CUDA 512 Sweep
-
-```bash
-source ~/aiperf-venv/bin/activate
-
-for C in 1 2 4 8; do
-  echo "=== CUDA 512 Q/K-norm + RoPE fusion concurrency ${C} ==="
-  aiperf profile \
-    --model google/gemma-4-E2B-it \
-    --tokenizer google/gemma-4-E2B-it \
-    --url http://localhost:8000 \
-    --endpoint-type chat \
-    --endpoint v1/chat/completions \
-    --streaming \
-    --ui simple \
-    --concurrency "${C}" \
-    --request-count 128 \
-    --warmup-request-count 8 \
-    --synthetic-input-tokens-mean 512 \
-    --synthetic-input-tokens-stddev 0 \
-    --output-tokens-mean 128 \
-    --output-tokens-stddev 0 \
-    --extra-inputs ignore_eos:true \
-    --random-seed 0 \
-    --artifact-dir ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_512_c${C}
-done
-```
-
-### 7. Generate Pareto Plots
-
-Baseline:
-
-```bash
-cd ~/gpu-assignment
-python3 -m pip install -r requirements.txt
-
-python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results \
-  --experiment baseline \
-  --output-csv ~/gpu-assignment-results/step6-baseline/baseline_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-baseline/baseline_pareto.png \
-  --title 'Gemma 4 E2B Baseline Pareto Curve'
-```
-
-LT-512 control:
-
-```bash
-cd ~/gpu-assignment
-
-python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results \
-  --experiment qk-norm-rope-fusion-lt-512 \
-  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion-lt-512/qk_norm_rope_fusion_lt_512_pareto.png \
-  --title 'Gemma 4 E2B LT-512 Q/K RMSNorm + RoPE Fusion Pareto Curve'
-```
-
-CUDA 512 experiment:
-
-```bash
-cd ~/gpu-assignment
-
-python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results \
-  --experiment qk-norm-rope-fusion-512 \
-  --output-csv ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_512_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-qk-norm-rope-fusion/qk_norm_rope_fusion_512_pareto.png \
-  --title 'Gemma 4 E2B CUDA 512 Q/K RMSNorm + RoPE Fusion Pareto Curve'
-```
-
-### 8. Generate A Combined Comparison Plot
-
-```bash
-cd ~/gpu-assignment
-
-mkdir -p ~/gpu-assignment-results/step6-comparison
-
-python3 plot_aiperf_pareto.py \
-  --results-root ~/gpu-assignment-results \
-  --experiment baseline \
-  --experiment async-output-sync-reduction \
-  --experiment decoder-residual-fusion \
-  --experiment qk-norm-rope-fusion-lt-512 \
-  --experiment qk-norm-rope-fusion-512 \
-  --output-csv ~/gpu-assignment-results/step6-comparison/combined_summary.csv \
-  --output-figure ~/gpu-assignment-results/step6-comparison/combined_pareto.png \
-  --title 'Gemma 4 E2B Q/K RMSNorm + RoPE Experiment Comparison'
-```
-
-## Expected Artifacts
-
-The important artifacts are:
-
-- `baseline_summary.csv`
-- `baseline_pareto.png`
-- `qk_norm_rope_fusion_lt_512_summary.csv`
-- `qk_norm_rope_fusion_lt_512_pareto.png`
-- `qk_norm_rope_fusion_512_summary.csv`
-- `qk_norm_rope_fusion_512_pareto.png`
-- `combined_summary.csv`
-- `combined_pareto.png`
-- matching `nsys` traces for baseline, `lt-512`, and `512`
+for compiler-dump diagnostics.
 
 ## Success Criteria
 
-The `512` experiment is considered successful only if all of the following hold:
+Advance the new kernel only if all of the following hold:
 
-- the server starts cleanly with `--gemma4-kernel-experiment qk-norm-rope-fusion-512`
-- startup logs show both `(256, 8, 1)` and `(512, 8, 1)` are registered
-- there is no `Unsupported head dimension for fusedQKNormRope: 512` runtime failure
-- direct kernel tests and compile-pass tests still pass
-- model responses remain coherent
-- there is no obvious correctness regression versus baseline
-- AIPerf shows no regression versus `lt-512`, with whole-model improvement as the target
-- CUDA graphs and async scheduling remain enabled unless intentionally disabled for tracing
+- the new CUDA op is correct for both Gemma4 head dimensions
+- compile-pass tests prove the new rewrite only hits non-KV-shared attention
+  prep
+- steady-state `nsys` shows a cleaner attention-prep region
+- compiled `AIPerf` does not regress versus the Q/K-only control path
+- model behavior remains coherent
 
-## Follow-On Candidate
-
-If the `512` path is correct but not competitive, the next step is retuning the `SM89` `token_heads_per_warp` thresholds on L4 using forced `1`, `2`, and `4` overrides and then updating the host auto-selection branch with the measured best cutovers.
+If the microbenchmark wins but compiled end-to-end serving loses, the compiled
+serving result wins.
