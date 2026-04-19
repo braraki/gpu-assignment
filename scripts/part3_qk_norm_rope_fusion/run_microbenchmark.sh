@@ -6,7 +6,7 @@ source "${SCRIPT_DIR}/common.sh"
 
 OUTPUT_DIR="${OUTPUT_DIR:-${WORKSPACE_ROOT}/results/part3-qk-norm-rope-fusion/microbench}"
 NUM_TOKENS="${NUM_TOKENS:-1 4 16 64 256 1024}"
-PROVIDERS="${PROVIDERS:-baseline_eager baseline_compiled qk_fusion_compiled qk_fusion_custom_op attention_prep_custom_op}"
+PROVIDERS="${PROVIDERS:-baseline_compiled attention_prep_custom_op}"
 HEAD_DIMS="${HEAD_DIMS:-}"
 NUM_HEADS="${NUM_HEADS:-}"
 NUM_KV_HEADS="${NUM_KV_HEADS:-}"

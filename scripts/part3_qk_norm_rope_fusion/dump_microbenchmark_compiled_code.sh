@@ -17,10 +17,10 @@ BENCHMARK_OUTPUT_DIR="${RUN_DIR}/benchmark_outputs"
 LOG_PATH="${RUN_DIR}/torch_output_code.log"
 
 case "$PROVIDER" in
-  baseline_compiled|qk_fusion_compiled|attention_prep_compiled)
+  baseline_compiled|attention_prep_compiled)
     ;;
   *)
-    echo "PROVIDER must be baseline_compiled, qk_fusion_compiled, or attention_prep_compiled, got: ${PROVIDER}" >&2
+    echo "PROVIDER must be baseline_compiled or attention_prep_compiled, got: ${PROVIDER}" >&2
     exit 1
     ;;
 esac

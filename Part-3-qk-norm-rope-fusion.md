@@ -22,25 +22,7 @@ Part 3 is structured to mirror Part 2:
 
 ## What The Experiment Is
 
-Part 3 uses a phased experiment family.
-
-### Control Experiment
-
-The control experiment is the existing fused Q/K RMSNorm + RoPE path:
-
-```bash
---gemma4-kernel-experiment qk-norm-rope-fusion-512
-```
-
-That path is useful for two reasons:
-
-- it already exists in `vLLM`
-- it proves that the attention-prep region is a valid source-level optimization
-  target for Gemma 4
-
-### New Kernel Deliverable
-
-The new Part 3 kernel is:
+The Part 3 kernel is:
 
 ```bash
 --gemma4-kernel-experiment qkv-norm-rope-vnorm-fusion
@@ -88,10 +70,6 @@ v = v.flatten(-2, -1)
 Part 3 adds explicit profiling scopes around this attention-prep region so the
 affected source block can be found directly in `nsys`.
 
-The existing control op is:
-
-- `torch.ops._C.fused_qk_norm_rope(...)`
-
 The new Part 3 op is:
 
 - `torch.ops.vllm.fused_qkv_norm_rope_vnorm(...)`
@@ -100,9 +78,9 @@ The compile-pass work lives in:
 
 - [qk_norm_rope_fusion.py](/Users/brandonaraki/projects/gpu-assignment/vllm/vllm/compilation/passes/fusion/qk_norm_rope_fusion.py)
 
-The CUDA kernels live in:
+The Triton kernel lives in:
 
-- [fused_qknorm_rope_kernel.cu](/Users/brandonaraki/projects/gpu-assignment/vllm/csrc/fused_qknorm_rope_kernel.cu)
+- [qkv_norm_rope_vnorm_triton.py](/Users/brandonaraki/projects/gpu-assignment/vllm/vllm/model_executor/kernels/qkv_norm_rope_vnorm_triton.py)
 
 ## Baseline Evidence From Part 1
 
@@ -156,8 +134,7 @@ So Part 3 has two jobs:
 
 1. prove attribution more directly with compile-pass evidence and explicit NVTX
    scopes
-2. test a more ambitious attention-prep kernel than the existing Q/K-only
-   control path
+2. test whether a fused attention-prep kernel improves on the unfused baseline
 
 The decision logic for Part 3 is:
 
@@ -167,10 +144,9 @@ The decision logic for Part 3 is:
 - then the next source-level fusion target should be attention prep, not
   another tiny decoder epilogue
 
-That is why Part 3 uses a phased approach:
+That is why Part 3 focuses directly on:
 
-- `qk-norm-rope-fusion-512` is the proving-ground and control
-- `qkv-norm-rope-vnorm-fusion` is the new kernel deliverable
+- `qkv-norm-rope-vnorm-fusion` as the new kernel deliverable
 
 ## Operator Microbenchmark
 
@@ -182,14 +158,24 @@ The benchmark lives in:
 
 It compares these providers:
 
-- `baseline_eager`
 - `baseline_compiled`
-- `qk_fusion_compiled`
-- `qk_fusion_custom_op`
 - `attention_prep_custom_op`
 
 There is also an internal `attention_prep_compiled` provider for compiler-dump
 diagnostics.
+
+These names mean:
+
+- `baseline_compiled`: the same unfused attention-prep block, but wrapped in
+  `torch.compile` so Inductor is free to fuse or schedule the baseline however
+  it wants
+- `attention_prep_custom_op`: the new Part 3 experiment, where one fused
+  custom op handles Q norm, K norm, RoPE, and V norm over packed `qkv`
+
+That separation matters because it distinguishes:
+
+- compiled baseline quality
+- the new Part 3 fused-kernel path
 
 By default the benchmark:
 
@@ -197,6 +183,7 @@ By default the benchmark:
 - uses `bfloat16`
 - benchmarks token counts `1 4 16 64 256 1024`
 - benchmarks both Gemma4-relevant head dimensions
+- writes grouped bar charts for each head dimension
 - checks correctness on:
   - `q`
   - `k`
@@ -245,19 +232,13 @@ The main comparison of interest is:
 - `baseline_compiled`
 - `attention_prep_custom_op`
 
-The control comparison is:
-
-- `baseline_compiled`
-- `qk_fusion_compiled`
-
 Part 3 is only successful if all of the following hold:
 
 - correctness is preserved
 - the compiler-dump evidence shows the intended operator shape
 - steady-state `nsys` gets cleaner in the new attention-prep scope
-- compiled `AIPerf` does not regress relative to the control path
-- ideally, compiled `AIPerf` improves relative to both baseline and the Q/K-only
-  control
+- compiled `AIPerf` does not regress relative to baseline
+- ideally, compiled `AIPerf` improves relative to baseline
 
 As in Part 2, compiled serving results are authoritative.
 
@@ -266,11 +247,10 @@ As in Part 2, compiled serving results are authoritative.
 Use this order of evidence:
 
 1. Part 1 baseline reference
-2. Part 3 control sweep: `qk-norm-rope-fusion-512`
-3. Part 3 new kernel sweep: `qkv-norm-rope-vnorm-fusion`
-4. steady-state `nsys`
-5. operator microbenchmark
-6. compiler-dump proof
+2. Part 3 new kernel sweep: `qkv-norm-rope-vnorm-fusion`
+3. steady-state `nsys`
+4. operator microbenchmark
+5. compiler-dump proof
 
 The scripts live in:
 
@@ -278,7 +258,7 @@ The scripts live in:
 
 The expected run flow is:
 
-1. baseline or control server launch
+1. baseline or new-kernel server launch
 2. `AIPerf` sweep
 3. matching steady-state `nsys`
 4. operator microbenchmark
@@ -292,14 +272,13 @@ This section should eventually include:
 
 - the Part 3 microbenchmark CSV and plots
 - the compiler-dump evidence for baseline vs fused providers
-- one baseline or control `nsys` trace and one new-kernel `nsys` trace
+- one baseline `nsys` trace and one new-kernel `nsys` trace
 - the end-to-end `AIPerf` comparison
 
 ### Placeholder Result Table
 
 | Comparison | Current status |
 | --- | --- |
-| `baseline_compiled` vs `qk_fusion_compiled` | pending |
 | `baseline_compiled` vs `attention_prep_custom_op` | pending |
 | steady-state `nsys` scope comparison | pending |
 | end-to-end `AIPerf` comparison | pending |

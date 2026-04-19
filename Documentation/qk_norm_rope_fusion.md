@@ -1,19 +1,17 @@
-# Gemma 4 Q/K Norm + RoPE Fusion Notes
+# Gemma 4 Attention-Prep Fusion Notes
 
 ## Goal
 
-Part 3 now treats Q/K RMSNorm + RoPE as the **control path** for a broader
-attention-prep experiment family.
+Part 3 now focuses on the full non-KV-shared Gemma4 attention-prep block:
 
-There are now two closely related experiment modes:
+- `q_norm`
+- `k_norm`
+- `rotary_emb(q, k)`
+- `v_norm`
 
-- `qk-norm-rope-fusion-512`
+The new kernel path fuses that block over packed `qkv` by introducing:
+
 - `qkv-norm-rope-vnorm-fusion`
-
-The control path keeps the existing fused Q/K RMSNorm + RoPE custom op.
-
-The new kernel path extends that idea to the full non-KV-shared Gemma4
-attention-prep block by also folding in weightless V RMSNorm.
 
 ## Why This Experiment Exists
 
@@ -48,22 +46,16 @@ The first Part 3 kernel iteration targets only those signatures.
 
 ```bash
 --gemma4-kernel-experiment baseline
---gemma4-kernel-experiment qk-norm-rope-fusion-lt-512
---gemma4-kernel-experiment qk-norm-rope-fusion-512
 --gemma4-kernel-experiment qkv-norm-rope-vnorm-fusion
 ```
 
 Mode semantics:
 
 - `baseline`: existing decoder and attention behavior
-- `qk-norm-rope-fusion-lt-512`: control mode that only fuses supported
-  sub-`512` Q/K signatures
-- `qk-norm-rope-fusion-512`: control mode that fuses both Gemma4 Q/K
-  signatures on CUDA
 - `qkv-norm-rope-vnorm-fusion`: new CUDA-only mode that fuses Q/K RMSNorm,
   RoPE, and V RMSNorm for non-KV-shared Gemma4 attention-prep blocks
 
-Both fusion families require:
+The Part 3 fusion path requires:
 
 - `pass_config.enable_qk_norm_rope_fusion = True`
 - `+rms_norm`
@@ -79,9 +71,9 @@ The compile pass is in:
 
 - [qk_norm_rope_fusion.py](/Users/brandonaraki/projects/gpu-assignment/vllm/vllm/compilation/passes/fusion/qk_norm_rope_fusion.py)
 
-The CUDA kernels are in:
+The Triton kernel is in:
 
-- [fused_qknorm_rope_kernel.cu](/Users/brandonaraki/projects/gpu-assignment/vllm/csrc/fused_qknorm_rope_kernel.cu)
+- [qkv_norm_rope_vnorm_triton.py](/Users/brandonaraki/projects/gpu-assignment/vllm/vllm/model_executor/kernels/qkv_norm_rope_vnorm_triton.py)
 
 The new Part 3 op is:
 
@@ -89,8 +81,8 @@ The new Part 3 op is:
 
 ## Cache Hygiene
 
-Switching between control and new-kernel modes requires a fresh torch compile
-cache:
+Switching between baseline and new-kernel modes may require a fresh torch
+compile cache:
 
 ```bash
 rm -rf ~/.cache/vllm/torch_compile_cache
@@ -119,8 +111,6 @@ Important entry points:
 The Part 3 attention-prep scopes are:
 
 - `gemma4.attention.prep:baseline`
-- `gemma4.attention.prep:qk_norm_rope_fusion_lt_512`
-- `gemma4.attention.prep:qk_norm_rope_fusion_512`
 - `gemma4.attention.prep:qkv_norm_rope_vnorm_fusion`
 
 This is important because the current baseline `nsys stats` do not expose
@@ -137,8 +127,6 @@ Default providers:
 
 - `baseline_eager`
 - `baseline_compiled`
-- `qk_fusion_compiled`
-- `qk_fusion_custom_op`
 - `attention_prep_custom_op`
 
 There is also an internal:
@@ -155,7 +143,7 @@ Advance the new kernel only if all of the following hold:
 - compile-pass tests prove the new rewrite only hits non-KV-shared attention
   prep
 - steady-state `nsys` shows a cleaner attention-prep region
-- compiled `AIPerf` does not regress versus the Q/K-only control path
+- compiled `AIPerf` does not regress versus baseline
 - model behavior remains coherent
 
 If the microbenchmark wins but compiled end-to-end serving loses, the compiled

@@ -14,3 +14,11 @@ the native `_C` extension.
 - `dump_microbenchmark_compiled_code.sh`: dump Torch/Inductor-generated code for the isolated compiled providers
 - `profile_qkv_norm_rope_vnorm_gemma4_nsys.sh`: profile a selected Part 3 server mode under a rich `nsys` trace
 - `process_nsys_report.sh`: export `nsys stats` summaries for a named report
+
+The microbenchmark provider names mean:
+
+- `baseline_compiled`: the same unfused block under `torch.compile`
+- `attention_prep_custom_op`: new Part 3 fused Q/K/V attention-prep custom op
+
+The generated benchmark plots are grouped bar charts by token count, with one
+figure per head dimension.
