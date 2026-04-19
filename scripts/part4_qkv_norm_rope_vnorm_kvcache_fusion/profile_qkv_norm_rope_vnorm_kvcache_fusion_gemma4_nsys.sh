@@ -40,6 +40,8 @@ echo "VLLM_CUSTOM_SCOPES_FOR_PROFILING: ${VLLM_CUSTOM_SCOPES_FOR_PROFILING}"
 
 rm -rf ~/.cache/vllm/torch_compile_cache
 
+COMPILATION_CONFIG_JSON="$(normalized_compilation_config)"
+
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" \
 VLLM_WORKER_MULTIPROC_METHOD="${VLLM_WORKER_MULTIPROC_METHOD}" \
 VLLM_NVTX_SCOPES_FOR_PROFILING="${VLLM_NVTX_SCOPES_FOR_PROFILING}" \
@@ -65,5 +67,5 @@ nsys profile \
     --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
     --enable-chunked-prefill \
     --async-scheduling \
-    --compilation-config "$COMPILATION_CONFIG" \
+    --compilation-config "$COMPILATION_CONFIG_JSON" \
     --gemma4-kernel-experiment "$KERNEL_EXPERIMENT"

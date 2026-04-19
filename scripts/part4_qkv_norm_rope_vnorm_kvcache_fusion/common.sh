@@ -15,7 +15,8 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-8}"
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-1024}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.80}"
-COMPILATION_CONFIG="${COMPILATION_CONFIG:-{\"mode\":3,\"cudagraph_mode\":\"FULL_AND_PIECEWISE\"}}"
+DEFAULT_COMPILATION_CONFIG='{"mode":3,"cudagraph_mode":"FULL_AND_PIECEWISE"}'
+COMPILATION_CONFIG="${COMPILATION_CONFIG:-$DEFAULT_COMPILATION_CONFIG}"
 
 function activate_vllm_venv() {
   cd "$VLLM_DIR"
@@ -51,8 +52,29 @@ function export_profiling_scopes() {
   export VLLM_CUSTOM_SCOPES_FOR_PROFILING="${VLLM_CUSTOM_SCOPES_FOR_PROFILING:-0}"
 }
 
+function normalized_compilation_config() {
+  COMPILATION_CONFIG_RAW="${COMPILATION_CONFIG:-$DEFAULT_COMPILATION_CONFIG}" \
+  python - <<'PY'
+import json
+import os
+import sys
+
+raw = os.environ["COMPILATION_CONFIG_RAW"]
+try:
+    parsed = json.loads(raw)
+except json.JSONDecodeError as exc:
+    print(f"Invalid COMPILATION_CONFIG JSON: {exc}", file=sys.stderr)
+    print(f"Raw COMPILATION_CONFIG: {raw!r}", file=sys.stderr)
+    raise SystemExit(1)
+
+print(json.dumps(parsed, separators=(",", ":")))
+PY
+}
+
 function launch_vllm_server() {
   local kernel_experiment="$1"
+  local compilation_config_json
+  compilation_config_json="$(normalized_compilation_config)"
 
   CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" \
   VLLM_WORKER_MULTIPROC_METHOD="${VLLM_WORKER_MULTIPROC_METHOD:-spawn}" \
@@ -70,6 +92,6 @@ function launch_vllm_server() {
     --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
     --enable-chunked-prefill \
     --async-scheduling \
-    --compilation-config "$COMPILATION_CONFIG" \
+    --compilation-config "$compilation_config_json" \
     --gemma4-kernel-experiment "$kernel_experiment"
 }
