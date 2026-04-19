@@ -198,6 +198,9 @@ cd ~/gpu-assignment
 gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/serve_qkv_norm_rope_vnorm_kvcache_fusion_gemma4.sh qkv-norm-rope-vnorm-kvcache-fusion
 ```
 
+Part 4 requires the FlashAttention backend in serving runs. The Part 4 scripts
+now pass `--attention-backend FLASH_ATTN` automatically.
+
 ### Baseline AIPerf Sweep
 
 ```bash
