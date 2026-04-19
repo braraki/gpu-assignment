@@ -34,7 +34,6 @@ echo "Capture duration: ${CAPTURE_SECONDS}s"
 echo "Trace domains: ${NSYS_TRACE}"
 echo "CPU sampling: ${NSYS_SAMPLE}"
 echo "CPU context switches: ${NSYS_CPUCTXSW}"
-echo "Attention backend: ${ATTENTION_BACKEND}"
 echo "VLLM_WORKER_MULTIPROC_METHOD: ${VLLM_WORKER_MULTIPROC_METHOD}"
 echo "VLLM_NVTX_SCOPES_FOR_PROFILING: ${VLLM_NVTX_SCOPES_FOR_PROFILING}"
 echo "VLLM_CUSTOM_SCOPES_FOR_PROFILING: ${VLLM_CUSTOM_SCOPES_FOR_PROFILING}"
@@ -64,7 +63,6 @@ nsys profile \
     --max-num-seqs "$MAX_NUM_SEQS" \
     --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS" \
     --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
-    --attention-backend "$ATTENTION_BACKEND" \
     --enable-chunked-prefill \
     --async-scheduling \
     --compilation-config "$COMPILATION_CONFIG" \

@@ -46,7 +46,7 @@ The first Part 4 implementation is intentionally narrow:
 
 - Triton-only
 - CUDA-only
-- FlashAttention backend only
+- TritonAttention backend only
 - `dcp_world_size == 1`
 - non-quantized KV cache only
 - Gemma4-specific attention signatures only
@@ -57,7 +57,7 @@ The first Part 4 implementation is intentionally narrow:
 The Part 4 source-level target spans two adjacent boundaries:
 
 1. Gemma4 attention prep in `Gemma4Attention.forward`
-2. the KV-cache update in `Attention.forward`
+2. the TritonAttention KV-cache update in `Attention.forward`
 
 The conceptual baseline path is:
 
@@ -171,7 +171,7 @@ The core checks are:
 1. Q output matches the unfused baseline
 2. K output matches the unfused baseline
 3. V output matches the unfused baseline
-4. KV cache contents match the unfused `reshape_and_cache_flash` path
+4. KV cache contents match the unfused TritonAttention cache-update path
 5. `reshape_and_cache_kernel_flash` disappears from the matched Part 4 window
 
 The scripts live in:
@@ -197,9 +197,6 @@ gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/serve_qkv_norm_r
 cd ~/gpu-assignment
 gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/serve_qkv_norm_rope_vnorm_kvcache_fusion_gemma4.sh qkv-norm-rope-vnorm-kvcache-fusion
 ```
-
-Part 4 requires the FlashAttention backend in serving runs. The Part 4 scripts
-now pass `--attention-backend FLASH_ATTN` automatically.
 
 ### Baseline AIPerf Sweep
 

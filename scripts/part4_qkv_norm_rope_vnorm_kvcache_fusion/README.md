@@ -7,6 +7,10 @@ The `qkv-norm-rope-vnorm-kvcache-fusion` experiment uses a Triton-registered
 Python custom op, so iterating on the Part 4 kernel does not require rebuilding
 the native `_C` extension.
 
+Part 4 now targets the TritonAttention serving path used by Gemma4 on this
+stack. The serve and `nsys` scripts intentionally leave backend selection on
+auto so Gemma4 can naturally select `TRITON_ATTN`.
+
 - `serve_qkv_norm_rope_vnorm_kvcache_fusion_gemma4.sh`: start a Gemma 4 server for a selected Part 4 experiment mode
 - `run_aiperf_sweep.sh`: run the standard `AIPerf` concurrency sweep against the current server
 - `run_aiperf_c4_load.sh`: run sustained `c=4` load for `nsys` capture

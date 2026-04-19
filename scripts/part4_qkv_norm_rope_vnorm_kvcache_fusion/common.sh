@@ -16,7 +16,6 @@ MAX_NUM_SEQS="${MAX_NUM_SEQS:-8}"
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-1024}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.80}"
 COMPILATION_CONFIG="${COMPILATION_CONFIG:-{\"mode\":3,\"cudagraph_mode\":\"FULL_AND_PIECEWISE\"}}"
-ATTENTION_BACKEND="${ATTENTION_BACKEND:-FLASH_ATTN}"
 
 function activate_vllm_venv() {
   cd "$VLLM_DIR"
@@ -69,7 +68,6 @@ function launch_vllm_server() {
     --max-num-seqs "$MAX_NUM_SEQS" \
     --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS" \
     --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
-    --attention-backend "$ATTENTION_BACKEND" \
     --enable-chunked-prefill \
     --async-scheduling \
     --compilation-config "$COMPILATION_CONFIG" \
