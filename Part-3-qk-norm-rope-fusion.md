@@ -391,22 +391,89 @@ gpu-assignment/scripts/part3_qk_norm_rope_fusion/dump_microbenchmark_compiled_co
 
 ## Results
 
-Part 3 has been scaffolded, but the experiment artifacts are still pending.
+The current Part 3 evidence is mixed.
 
-This section should eventually include:
+The compile dump proves that the fused path is being selected:
 
-- the Part 3 microbenchmark CSV and plots
-- the compiler-dump evidence for baseline vs fused providers
-- one baseline `nsys` trace and one new-kernel `nsys` trace
-- the end-to-end `AIPerf` comparison
+- `torch.ops.vllm.fused_qkv_norm_rope_vnorm.default(...)`
+- [compiler dump](/Users/brandonaraki/projects/gpu-assignment/results/part3-qk-norm-rope-fusion/compiler_dumps/attention_prep_compiled_tokens1024/torch_output_code.log:108)
 
-### Placeholder Result Table
+The operator microbenchmark is useful as an isolated signal, but the most
+important new result from the steady-state trace is a matched Nsight Systems
+comparison anchored on the same `kernel_unified_attention_2d` launch shape:
+
+- baseline attention grid: `<<<264, 1, 1>>>`
+- fused attention grid: `<<<264, 1, 1>>>`
+
+In that matched local window, the experimental path is slower.
+
+### Matched `nsys` Window
+
+Baseline pre-attention kernels:
+
+- `triton_red_fused_5`: `7.904 us`
+- `triton_poi_fused_6`: `9.024 us`
+- `reshape_and_cache_kernel_flash`: `6.240 us`
+- total pre-attention window: `23.168 us`
+
+Experimental pre-attention kernels:
+
+- `triton_red_fused_5`: `9.792 us`
+- `rotary_embedding_kernel`: `12.864 us`
+- `reshape_and_cache_kernel_flash`: `6.304 us`
+- total pre-attention window: `28.960 us`
+
+That is a regression of:
+
+- `+5.792 us` in the pre-attention window
+- about `+25.0%` relative to baseline
+
+The attention kernel itself is also slightly slower in the matched window:
+
+- baseline `kernel_unified_attention_2d`: `175.135 us`
+- experimental `kernel_unified_attention_2d`: `178.176 us`
+- delta: `+3.041 us`
+- about `+1.7%`
+
+The preceding GEMM is effectively flat but still slightly worse:
+
+- baseline GEMM: `97.216 us`
+- experimental GEMM: `98.080 us`
+- delta: `+0.864 us`
+
+If we treat the local sequence as:
+
+1. QKV projection GEMM
+2. pre-attention prep kernels
+3. `kernel_unified_attention_2d`
+
+then the total matched local window is:
+
+- baseline: `295.519 us`
+- experimental: `305.216 us`
+- delta: `+9.697 us`
+- about `+3.3%`
+
+The practical interpretation is:
+
+- `triton_poi_fused_6` disappears in the experimental trace
+- but it is replaced by a slower pre-attention sequence that includes
+  `rotary_embedding_kernel`
+- `reshape_and_cache_kernel_flash` is unchanged
+- the net local effect in the matched trace is a regression, not a win
+
+This is the best current trace-level evidence for Part 3. The fused Triton op
+still does not appear as a clean named kernel row in `nsys`, so the defensible
+comparison is the local pre-attention window immediately preceding the same
+attention kernel shape.
+
+### Result Table
 
 | Comparison | Current status |
 | --- | --- |
-| `baseline_compiled` vs `attention_prep_custom_op` | pending |
-| steady-state `nsys` scope comparison | pending |
-| end-to-end `AIPerf` comparison | pending |
+| `baseline_compiled` vs `attention_prep_custom_op` | mixed in microbenchmark; not sufficient on its own |
+| matched steady-state `nsys` local window | regression in the fused path (`+3.3%` local window) |
+| end-to-end `AIPerf` comparison | not yet trustworthy enough to claim a win |
 
 ### What We Expect To Change
 
@@ -418,9 +485,6 @@ If Part 3 works as intended, we expect:
 - no loss of CUDA graph compatibility
 - no loss of async scheduling compatibility
 
-The main point of Part 3 is not that Q/K norm + RoPE already dominates the
-kernel summary by name.
-
-The point is that the next ambitious kernel target should be chosen by source
-position and workload importance, not only by whichever tiny compiler-generated
-epilogue row is easiest to name in the current trace.
+The current result does not meet that bar. The fused attention-prep direction is
+still a worthwhile target from a source-position standpoint, but the present
+implementation does not yet justify itself on the steady-state trace.

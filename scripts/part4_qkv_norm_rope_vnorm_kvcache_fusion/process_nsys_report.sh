@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 NSYS_DIR="${RESULTS_ROOT}/nsys"
-TRACE_NAME="${TRACE_NAME:-qkv-norm-rope-vnorm-fusion}"
+TRACE_NAME="${TRACE_NAME:-qkv-norm-rope-vnorm-kvcache-fusion}"
 
 REPORT_PREFIX="${NSYS_DIR}/${TRACE_NAME}"
 REPORT_FILE="${REPORT_PREFIX}.nsys-rep"
