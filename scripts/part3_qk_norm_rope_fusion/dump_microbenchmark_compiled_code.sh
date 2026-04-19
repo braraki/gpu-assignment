@@ -26,6 +26,9 @@ case "$PROVIDER" in
 esac
 
 activate_vllm_venv
+if [[ "$PROVIDER" == "attention_prep_compiled" ]]; then
+  require_fused_qkv_norm_rope_vnorm_op
+fi
 
 mkdir -p "$BENCHMARK_OUTPUT_DIR"
 

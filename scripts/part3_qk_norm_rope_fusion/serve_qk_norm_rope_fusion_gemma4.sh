@@ -9,6 +9,10 @@ KERNEL_EXPERIMENT="${1:-${KERNEL_EXPERIMENT:-qkv-norm-rope-vnorm-fusion}}"
 activate_vllm_venv
 export_profiling_scopes
 
+if [[ "${KERNEL_EXPERIMENT}" == "qkv-norm-rope-vnorm-fusion" ]]; then
+  require_fused_qkv_norm_rope_vnorm_op
+fi
+
 echo "Starting Part 3 Gemma 4 server"
 echo "Kernel experiment: ${KERNEL_EXPERIMENT}"
 echo "Model: ${MODEL}"

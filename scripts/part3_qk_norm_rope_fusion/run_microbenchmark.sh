@@ -16,6 +16,10 @@ SKIP_CORRECTNESS_CHECK="${SKIP_CORRECTNESS_CHECK:-0}"
 activate_vllm_venv
 mkdir -p "$OUTPUT_DIR"
 
+if [[ "$SKIP_CORRECTNESS_CHECK" != "1" ]] || [[ " $PROVIDERS " == *" attention_prep_custom_op "* ]] || [[ " $PROVIDERS " == *" attention_prep_compiled "* ]]; then
+  require_fused_qkv_norm_rope_vnorm_op
+fi
+
 args=(
   benchmarks/kernels/benchmark_qkv_norm_rope_vnorm.py
   --model "$MODEL"

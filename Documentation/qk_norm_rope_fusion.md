@@ -85,7 +85,7 @@ The CUDA kernels are in:
 
 The new Part 3 op is:
 
-- `torch.ops._C.fused_qkv_norm_rope_vnorm(...)`
+- `torch.ops.vllm.fused_qkv_norm_rope_vnorm(...)`
 
 ## Cache Hygiene
 
@@ -96,13 +96,7 @@ cache:
 rm -rf ~/.cache/vllm/torch_compile_cache
 ```
 
-If any CUDA source changed, rebuild the editable install:
-
-```bash
-cd ~/vllm
-source .venv/bin/activate
-uv pip install -e . --torch-backend=auto
-```
+The Part 3 Triton path is Python-only and does not require rebuilding `_C`.
 
 ## Scripts
 

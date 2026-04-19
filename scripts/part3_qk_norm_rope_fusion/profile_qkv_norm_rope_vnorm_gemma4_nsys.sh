@@ -18,6 +18,10 @@ mkdir -p "$NSYS_DIR"
 activate_vllm_venv
 export_profiling_scopes
 
+if [[ "${KERNEL_EXPERIMENT}" == "qkv-norm-rope-vnorm-fusion" ]]; then
+  require_fused_qkv_norm_rope_vnorm_op
+fi
+
 echo "Shell 1: this script launches the Part 3 server under nsys."
 echo "Shell 2: after the server is ready, run:"
 echo "  RUN_NAME=${RUN_NAME} scripts/part3_qk_norm_rope_fusion/run_aiperf_c4_load.sh"

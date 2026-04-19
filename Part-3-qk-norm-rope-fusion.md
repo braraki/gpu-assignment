@@ -94,7 +94,7 @@ The existing control op is:
 
 The new Part 3 op is:
 
-- `torch.ops._C.fused_qkv_norm_rope_vnorm(...)`
+- `torch.ops.vllm.fused_qkv_norm_rope_vnorm(...)`
 
 The compile-pass work lives in:
 

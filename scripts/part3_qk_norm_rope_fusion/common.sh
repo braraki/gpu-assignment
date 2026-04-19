@@ -22,6 +22,26 @@ function activate_vllm_venv() {
   source .venv/bin/activate
 }
 
+function require_fused_qkv_norm_rope_vnorm_op() {
+  if python - <<'PY' >/dev/null 2>&1
+import vllm._custom_ops  # noqa: F401
+import torch
+raise SystemExit(
+    0
+    if hasattr(torch.ops, "vllm")
+    and hasattr(torch.ops.vllm, "fused_qkv_norm_rope_vnorm")
+    else 1
+)
+PY
+  then
+    return 0
+  fi
+
+  echo "Missing torch.ops.vllm.fused_qkv_norm_rope_vnorm in the Python Triton registration path." >&2
+  echo "Check that Triton is available and that the local vLLM Python sources are being imported." >&2
+  return 1
+}
+
 function export_profiling_scopes() {
   export VLLM_WORKER_MULTIPROC_METHOD="${VLLM_WORKER_MULTIPROC_METHOD:-spawn}"
   export VLLM_NVTX_SCOPES_FOR_PROFILING="${VLLM_NVTX_SCOPES_FOR_PROFILING:-1}"
