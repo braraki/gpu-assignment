@@ -264,6 +264,131 @@ The expected run flow is:
 4. operator microbenchmark
 5. compiler-dump comparison
 
+## Copy-Paste Commands
+
+These are the exact commands to run each Part 3 experiment from the EC2 box.
+
+### Baseline Server
+
+```bash
+cd ~/gpu-assignment
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/serve_qk_norm_rope_fusion_gemma4.sh baseline
+```
+
+### Fused Server
+
+```bash
+cd ~/gpu-assignment
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/serve_qk_norm_rope_fusion_gemma4.sh qkv-norm-rope-vnorm-fusion
+```
+
+### Baseline `AIPerf` Sweep
+
+Start the baseline server first, then run:
+
+```bash
+cd ~/gpu-assignment
+RUN_SET=baseline \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/run_aiperf_sweep.sh 1 2 4 8
+```
+
+### Fused `AIPerf` Sweep
+
+Start the fused server first, then run:
+
+```bash
+cd ~/gpu-assignment
+RUN_SET=qkv-norm-rope-vnorm-fusion \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/run_aiperf_sweep.sh 1 2 4 8
+```
+
+### Baseline `nsys`
+
+Shell 1:
+
+```bash
+cd ~/gpu-assignment
+KERNEL_EXPERIMENT=baseline \
+TRACE_NAME=baseline \
+RUN_NAME=baseline_c4_load \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/profile_qkv_norm_rope_vnorm_gemma4_nsys.sh
+```
+
+Shell 2, after the server is ready:
+
+```bash
+cd ~/gpu-assignment
+RUN_NAME=baseline_c4_load \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/run_aiperf_c4_load.sh
+```
+
+Export the stats after the capture finishes:
+
+```bash
+cd ~/gpu-assignment
+TRACE_NAME=baseline \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/process_nsys_report.sh
+```
+
+### Fused `nsys`
+
+Shell 1:
+
+```bash
+cd ~/gpu-assignment
+KERNEL_EXPERIMENT=qkv-norm-rope-vnorm-fusion \
+TRACE_NAME=qkv-norm-rope-vnorm-fusion \
+RUN_NAME=qkv_norm_rope_vnorm_fusion_c4_load \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/profile_qkv_norm_rope_vnorm_gemma4_nsys.sh
+```
+
+Shell 2, after the server is ready:
+
+```bash
+cd ~/gpu-assignment
+RUN_NAME=qkv_norm_rope_vnorm_fusion_c4_load \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/run_aiperf_c4_load.sh
+```
+
+Export the stats after the capture finishes:
+
+```bash
+cd ~/gpu-assignment
+TRACE_NAME=qkv-norm-rope-vnorm-fusion \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/process_nsys_report.sh
+```
+
+### Microbenchmark
+
+```bash
+cd ~/gpu-assignment
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/run_microbenchmark.sh
+```
+
+If you want to rerun only the plots and timings without the correctness check:
+
+```bash
+cd ~/gpu-assignment
+SKIP_CORRECTNESS_CHECK=1 \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/run_microbenchmark.sh
+```
+
+### Compiler Dump: Baseline
+
+```bash
+cd ~/gpu-assignment
+PROVIDER=baseline_compiled \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/dump_microbenchmark_compiled_code.sh
+```
+
+### Compiler Dump: Fused
+
+```bash
+cd ~/gpu-assignment
+PROVIDER=attention_prep_compiled \
+gpu-assignment/scripts/part3_qk_norm_rope_fusion/dump_microbenchmark_compiled_code.sh
+```
+
 ## Results
 
 Part 3 has been scaffolded, but the experiment artifacts are still pending.

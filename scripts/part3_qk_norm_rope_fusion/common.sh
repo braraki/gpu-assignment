@@ -52,6 +52,9 @@ function launch_vllm_server() {
   local kernel_experiment="$1"
 
   CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" \
+  VLLM_WORKER_MULTIPROC_METHOD="${VLLM_WORKER_MULTIPROC_METHOD:-spawn}" \
+  VLLM_NVTX_SCOPES_FOR_PROFILING="${VLLM_NVTX_SCOPES_FOR_PROFILING:-1}" \
+  VLLM_CUSTOM_SCOPES_FOR_PROFILING="${VLLM_CUSTOM_SCOPES_FOR_PROFILING:-0}" \
   vllm serve "$MODEL" \
     --tensor-parallel-size "$TP_SIZE" \
     --dtype "$DTYPE" \
