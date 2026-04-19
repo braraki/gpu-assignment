@@ -202,7 +202,7 @@ def extract_metric(flat_values: list[tuple[tuple[str, ...], float]], candidate_s
 
 
 def extract_concurrency(run_dir: Path) -> int:
-    match = re.search(r"_c(\d+)$", run_dir.name)
+    match = re.search(r"(?:^|_)c(\d+)$", run_dir.name)
     if not match:
         raise ValueError(f"Could not parse concurrency from directory name: {run_dir}")
     return int(match.group(1))

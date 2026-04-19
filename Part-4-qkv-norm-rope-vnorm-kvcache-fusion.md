@@ -202,7 +202,7 @@ gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/serve_qkv_norm_r
 
 ```bash
 cd ~/gpu-assignment
-RUN_SET=baseline \
+RUN_SET=sweep-baseline \
 gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/run_aiperf_sweep.sh
 ```
 
@@ -210,8 +210,27 @@ gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/run_aiperf_sweep
 
 ```bash
 cd ~/gpu-assignment
-RUN_SET=qkv-norm-rope-vnorm-kvcache-fusion \
+RUN_SET=sweep-kernel \
 gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/run_aiperf_sweep.sh
+```
+
+### Plot Baseline vs Part 4 AIPerf Pareto
+
+If needed, install the plotting dependency first:
+
+```bash
+python3 -m pip install matplotlib
+```
+
+```bash
+cd ~/gpu-assignment
+RESULTS_ROOT=~/results/part4-qkv-norm-rope-vnorm-kvcache-fusion
+python3 gpu-assignment/plot_aiperf_pareto.py \
+  --series "baseline=${RESULTS_ROOT}/sweep-baseline::c*" \
+  --series "part4=${RESULTS_ROOT}/sweep-kernel::c*" \
+  --output-csv "${RESULTS_ROOT}/pareto_summary.csv" \
+  --output-figure "${RESULTS_ROOT}/pareto.png" \
+  --title "Baseline vs Part 4 AIPerf Pareto"
 ```
 
 ### Baseline `nsys`
