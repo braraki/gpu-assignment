@@ -224,6 +224,16 @@ RUN_NAME=baseline_c4_load \
 gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/profile_qkv_norm_rope_vnorm_kvcache_fusion_gemma4_nsys.sh
 ```
 
+### Baseline Sustained Load For `nsys`
+
+Run this in a second shell after the baseline `nsys` server is ready:
+
+```bash
+cd ~/gpu-assignment
+RUN_NAME=baseline_c4_load \
+gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/run_aiperf_c4_load.sh
+```
+
 ### Part 4 `nsys`
 
 ```bash
@@ -232,6 +242,16 @@ KERNEL_EXPERIMENT=qkv-norm-rope-vnorm-kvcache-fusion \
 TRACE_NAME=qkv-norm-rope-vnorm-kvcache-fusion \
 RUN_NAME=qkv_norm_rope_vnorm_kvcache_fusion_c4_load \
 gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/profile_qkv_norm_rope_vnorm_kvcache_fusion_gemma4_nsys.sh
+```
+
+### Part 4 Sustained Load For `nsys`
+
+Run this in a second shell after the Part 4 `nsys` server is ready:
+
+```bash
+cd ~/gpu-assignment
+RUN_NAME=qkv_norm_rope_vnorm_kvcache_fusion_c4_load \
+gpu-assignment/scripts/part4_qkv_norm_rope_vnorm_kvcache_fusion/run_aiperf_c4_load.sh
 ```
 
 ### Process Baseline `nsys` Report
